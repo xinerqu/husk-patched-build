@@ -1,0 +1,5 @@
+# Build outputs of the test harness only; nothing here is source.
+*.ipa
+*.tipa
+*.zip
+build/

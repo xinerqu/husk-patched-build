@@ -1,0 +1,134 @@
+name: Husk patched test build
+
+# Builds Husk (Leviidev/Husk) with this repo's patch applied and publishes an installable IPA:
+#   Husk-<sha>.zip   unsigned IPA   -> SideStore / AltStore / Sideloadly re-sign it
+#   Husk-<sha>.tipa  TrollStore
+# The patch only touches src/translation-layer-next (the native runtime Godot games go through), so QEMU/ANGLE are reused between
+# runs through the cache and a patch change is a few minutes of work on top.
+on:
+  workflow_dispatch:
+    inputs:
+      husk_ref:
+        description: "Leviidev/Husk branch or tag to build (default main)"
+        required: false
+        default: main
+      full_rebuild:
+        description: "Ignore the build cache (rebuild every dependency)"
+        type: boolean
+        required: false
+        default: false
+  push:
+    branches: [main]
+    paths: ["ci/**", ".github/workflows/**"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: husk-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 350
+    env:
+      HUSK_REPO: Leviidev/Husk
+      HUSK_REF: ${{ github.event.inputs.husk_ref || 'main' }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ci
+
+      - name: Runner
+        run: |
+          sw_vers
+          xcodebuild -version
+          df -h /
+
+      - name: Check out Husk
+        run: |
+          git clone --depth 1 --branch "$HUSK_REF" "https://github.com/$HUSK_REPO.git" husk-src || \
+            git clone "https://github.com/$HUSK_REPO.git" husk-src
+          git -C husk-src log -1 --format='building Husk %H (%ad) %s'
+
+      - name: Restore the build cache
+        if: ${{ !inputs.full_rebuild }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            husk-src/third_party
+            husk-src/build
+            ~/.cargo
+          key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/scripts/**', '.github/workflows/**') }}-${{ github.run_id }}
+          restore-keys: |
+            husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/scripts/**', '.github/workflows/**') }}-
+            husk-${{ env.HUSK_REF }}-main-
+            husk-${{ env.HUSK_REF }}-
+
+      # The Dalvik runtime and Android's fonts/certificates come out of the last official Husk release: regenerating them needs a
+      # mounted Lineage system image. Everything else is compiled here.
+      - name: Prebuilt Java runtime and system fonts
+        run: |
+          rel="$HUSK_REF"
+          gh release view "$rel" --repo "$HUSK_REPO" >/dev/null 2>&1 \
+            || rel="$(gh release list --repo "$HUSK_REPO" --limit 1 --json tagName --jq '.[0].tagName')"
+          echo "prebuilt parts from $HUSK_REPO release $rel"
+          gh release download "$rel" --repo "$HUSK_REPO" --pattern 'Husk.ipa' --dir "$RUNNER_TEMP" --clobber
+          python3 ci/ci/scripts/extract_assets.py "$RUNNER_TEMP/Husk.ipa" husk-src/ci/assets
+
+      - name: Apply the #140 patch
+        run: |
+          python3 ci/ci/scripts/patch_140.py husk-src
+          git -C husk-src diff --stat || true
+          ls -l husk-src/src/translation-layer-next/husk-tl-jni-godot-kotlin.c
+
+      - name: Test the file access the patch adds
+        run: |
+          cd ci/ci/test
+          cc -std=gnu11 -Wall -Wextra -Wno-unused-parameter \
+             -I"$GITHUB_WORKSPACE/husk-src/src/translation-layer-next" \
+             -I"$GITHUB_WORKSPACE/husk-src/src/translation-layer" -I. \
+             test_godot_kotlin.c stubs.c ../patches/140/husk-tl-jni-godot-kotlin.c -o "$RUNNER_TEMP/test_gk"
+          "$RUNNER_TEMP/test_gk"
+
+      - name: Build Husk
+        run: bash ci/ci/scripts/ci_build.sh "$GITHUB_WORKSPACE/husk-src/build/Husk.ipa"
+
+      - name: Build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_number }}
+          path: husk-src/build/logs/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Save the build cache
+        if: always() && !inputs.full_rebuild
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            husk-src/third_party
+            husk-src/build
+            ~/.cargo
+          key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/scripts/**', '.github/workflows/**') }}-${{ github.run_id }}
+
+      - name: Check the app bundle
+        run: |
+          APP="husk-src/build/Husk.ipa"
+          ls -lh "$APP"
+          unzip -l "$APP" | grep -E 'Husk.app/Husk$|Frameworks/libANGLE-shared.dylib|java-runtime/husk-framework.dex|android-system/etc/fonts.xml'
+
+      - name: Publish the IPA
+        if: success()
+        run: bash ci/ci/scripts/release_assets.sh "$GITHUB_WORKSPACE/husk-src/build/Husk.ipa"
+
+      - name: IPA as a workflow artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: husk-ipa-${{ github.run_number }}
+          path: husk-src/build/Husk.ipa
+          retention-days: 30

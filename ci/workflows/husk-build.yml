@@ -1,0 +1,132 @@
+name: Husk build (patched test build)
+# Builds Husk from Leviidev/Husk's main with the patch(es) in ci/patches applied, on the GitHub macOS runner, and publishes an
+# installable IPA (unsigned, for a sideloader) plus a TrollStore .tipa to a Release. First run: a couple of hours, as Husk's
+# README says; later runs reuse third_party/ and build/ through the cache and only redo what changed.
+#
+#   gh workflow run "Husk build (patched test build)" --repo <owner>/<repo>
+on:
+  workflow_dispatch:
+    inputs:
+      husk_ref:
+        description: "Leviidev/Husk branch or tag to build (default: main)"
+        required: false
+        default: main
+      full_rebuild:
+        description: "Ignore the cache and build everything from scratch"
+        type: boolean
+        required: false
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - "ci/patches/**"
+      - "ci/scripts/**"
+      - "ci/workflows/**"
+
+permissions:
+  contents: write          # to create the Release the IPA is attached to
+
+concurrency:
+  group: husk-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 350
+    env:
+      HUSK_REPO: Leviidev/Husk
+      HUSK_REF: ${{ github.event.inputs.husk_ref || 'main' }}
+      HUSK_SHA: ${{ github.sha }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ci
+
+      - name: Show the runner
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcode-select -p
+          df -h /
+
+      - name: Check out Husk ${{ env.HUSK_REF }}
+        run: |
+          git clone --depth 1 --branch "$HUSK_REF" "https://github.com/$HUSK_REPO.git" "$GITHUB_WORKSPACE/husk-src"
+          cd "$GITHUB_WORKSPACE/husk-src" && git log -1 --format='Husk %H (%ad) %s'
+
+      - name: Paste in the patch under test
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/husk-src/ci/patches"
+          cp "$GITHUB_WORKSPACE"/ci/ci/patches/*.patch "$GITHUB_WORKSPACE/husk-src/ci/patches/" 2>/dev/null || true
+          bash "$GITHUB_WORKSPACE/ci/ci/scripts/apply_patches.sh"
+        working-directory: ${{ github.workspace }}
+
+      # third_party/ (downloaded sources) and build/ (everything compiled so far) are where the hours go. Keyed by the Husk source
+      # commit set by hand in the input above and the build scripts, so a patch-only change reuses the compiled dependencies.
+      - name: Restore the build cache
+        if: ${{ !inputs.full_rebuild }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            husk-src/third_party
+            husk-src/build
+            /Users/runner/.cargo
+          key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/scripts/**') }}-${{ github.run_id }}
+          restore-keys: |
+            husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/scripts/**') }}-
+            husk-${{ env.HUSK_REF }}-
+
+      - name: Download the prebuilt Java runtime and system fonts
+        run: |
+          # These two come out of the last official Husk release (the Dalvik runtime; Android's fonts and certificates), because
+          # regenerating them needs a mounted Lineage system image, which a runner cannot make.
+          rel="$HUSK_REF"
+          gh release view "$rel" --repo "$HUSK_REPO" >/dev/null 2>&1 \
+            || rel="$(gh release list --repo "$HUSK_REPO" --limit 1 --json tagName --jq '.[0].tagName')"
+          echo "prebuilt parts come from $HUSK_REPO release $rel"
+          gh release download "$rel" --repo "$HUSK_REPO" --pattern 'Husk.ipa' --dir "$RUNNER_TEMP" --clobber
+          python3 "$GITHUB_WORKSPACE/ci/ci/scripts/extract_assets.py" "$RUNNER_TEMP/Husk.ipa" "$GITHUB_WORKSPACE/husk-src/ci/assets"
+
+      - name: Build Husk
+        run: bash "$GITHUB_WORKSPACE/ci/ci/scripts/ci_build.sh" "$GITHUB_WORKSPACE/husk-src/build/Husk.ipa"
+
+      - name: Keep the logs even when the build fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_number }}
+          path: |
+            husk-src/build/logs/
+            husk-src/third_party/build/**/*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Save the build cache
+        if: always() && !inputs.full_rebuild
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            husk-src/third_party
+            husk-src/build
+            /Users/runner/.cargo
+          key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/scripts/**') }}-${{ github.run_id }}
+
+      - name: Check the IPA
+        run: |
+          ls -lh "$GITHUB_WORKSPACE/husk-src/build/Husk.ipa"
+          unzip -l "$GITHUB_WORKSPACE/husk-src/build/Husk.ipa" | grep -E 'Husk.app/Husk$|Husk.app/Frameworks/libANGLE-shared.dylib|Husk.app/java-runtime/husk-framework.dex|Husk.app/android-system/etc/fonts.xml'
+
+      - name: Publish the IPA
+        if: success()
+        run: bash "$GITHUB_WORKSPACE/ci/ci/scripts/release_assets.sh" "$GITHUB_WORKSPACE/husk-src/build/Husk.ipa"
+
+      - name: Keep the unsigned IPA as a workflow artifact too
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: husk-ipa-${{ github.run_number }}
+          path: husk-src/build/Husk.ipa
+          retention-days: 30
