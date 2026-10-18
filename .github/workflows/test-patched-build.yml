@@ -19,13 +19,14 @@ on:
         default: false
   push:
     branches: [main]
-    paths: ["ci/**", ".github/workflows/**"]
 
 permissions:
   contents: write
 
 concurrency:
-  group: husk-build
+  # One build at a time with any other workflow in this repository: a push during a run would otherwise start a second build and
+  # spend the same hours twice, and leave no room in the cache.
+  group: husk-workspace
   cancel-in-progress: false
 
 jobs:
@@ -61,9 +62,9 @@ jobs:
             husk-src/third_party
             husk-src/build
             ~/.cargo
-          key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/scripts/**', '.github/workflows/**') }}-${{ github.run_id }}
+          key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/deps/**', '.github/workflows/**') }}-${{ github.run_id }}
           restore-keys: |
-            husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/scripts/**', '.github/workflows/**') }}-
+            husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/deps/**', '.github/workflows/**') }}-
             husk-${{ env.HUSK_REF }}-main-
             husk-${{ env.HUSK_REF }}-
 
@@ -93,11 +94,14 @@ jobs:
              test_godot_kotlin.c stubs.c ../patches/140/husk-tl-jni-godot-kotlin.c -o "$RUNNER_TEMP/test_gk"
           "$RUNNER_TEMP/test_gk"
 
-      - name: Build Husk
-        run: bash ci/ci/scripts/ci_build.sh "$GITHUB_WORKSPACE/husk-src/build/Husk.ipa"
+      - name: Dependencies (QEMU, ANGLE, GPU stack, MoltenVK, pairing)
+        run: bash ci/ci/scripts/ci_build.sh deps
+
+      - name: Build the app
+        run: bash ci/ci/scripts/ci_build.sh package
 
       - name: Build logs
-        if: always()
+        if: always() && !cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: logs-${{ github.run_number }}
@@ -106,14 +110,14 @@ jobs:
           retention-days: 14
 
       - name: Save the build cache
-        if: always() && !inputs.full_rebuild
+        if: always() && !cancelled() && !inputs.full_rebuild
         uses: actions/cache/save@v4
         with:
           path: |
             husk-src/third_party
             husk-src/build
             ~/.cargo
-          key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/scripts/**', '.github/workflows/**') }}-${{ github.run_id }}
+          key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/deps/**', '.github/workflows/**') }}-${{ github.run_id }}
 
       - name: Check the app bundle
         run: |

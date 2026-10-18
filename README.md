@@ -25,8 +25,12 @@ over it); the workflow runs it before the build.
 ## Building / re-running
 
 ```sh
-gh workflow run test-patched-build --repo xinerqu/husk-patched-build
+gh workflow run test-patched-build.yml --repo xinerqu/husk-patched-build
 ```
+
+Internally `ci/scripts/ci_build.sh deps` builds everything Husk links (QEMU, ANGLE, the GPU stack, MoltenVK, the pairing library) and
+`ci/scripts/ci_build.sh package` builds the app and the IPA; the two run as separate steps so the first one's result is cached
+before the second starts.
 
 `Leviidev/Husk` is cloned at `main` (input `husk_ref` to pick another branch), QEMU, ANGLE and the rest are compiled once and kept in
 the Actions cache, and a change to the patch alone reuses that. When `macos` runner disk spaces are exceeded the first run fails;

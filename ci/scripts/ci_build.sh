@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Husk, built on a GitHub macOS runner.
 #
-#   ./scripts/ci_build.sh [output.ipa]          everything, from a clean checkout
+#   ci/scripts/ci_build.sh deps        everything Husk links that is not the app: QEMU, ANGLE, the GPU stack, MoltenVK, rppairing
+#   ci/scripts/ci_build.sh package     the app and the IPA, with what "deps" built (build/Husk.ipa)
+#   ci/scripts/ci_build.sh all [out]   both, from a clean checkout
 #
 # Same stages as Husk's own script (fetch_sources, build_ios, ANGLE, the GPU stack, QEMU + integrate_husk, the guest kernel,
 # MoltenVK, rppairing, package_ipa.sh), with three differences that only a CI run needs:
@@ -17,9 +19,10 @@
 # third_party/ + build/ only redoes what changed.
 set -uo pipefail
 
-HUSK_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+HUSK_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"   # this script lives in <checkout>/ci/scripts
 cd "$HUSK_ROOT"
-OUT="${1:-$HUSK_ROOT/build/Husk.ipa}"
+WHAT="${1:-all}"
+OUT="${2:-$HUSK_ROOT/build/Husk.ipa}"
 LOGS="$HUSK_ROOT/build/logs"
 mkdir -p "$LOGS" "$(dirname "$OUT")"
 
@@ -74,17 +77,18 @@ df -h "$HUSK_ROOT" | tail -1
 # ------------------------------------------- the parts that need an Android image
 
 prebaked() {
-    local assets="$1"
+    local assets="$HUSK_ROOT/ci/assets"
     [ -d "$assets/java-runtime" ] || [ -d "$assets/android-system" ] || return 0
     step "prebuilt Java runtime and system fonts"
     [ -d "$assets/java-runtime" ]   && { rm -rf  build/java-runtime;   cp -R "$assets/java-runtime"   build/java-runtime; }
     [ -d "$assets/android-system" ] && { rm -rf  build/android-system; cp -R "$assets/android-system" build/android-system; }
     ls build/java-runtime/husk-framework.dex build/android-system/etc/fonts.xml
 }
-prebaked "$HUSK_ROOT/ci/assets"
+prebaked
 
 # ---------------------------------------------------------------- build
 
+if [ "$WHAT" = all ] || [ "$WHAT" = deps ]; then
 stage   "fetch sources"     ./scripts/fetch_sources.sh
 stage   "dependencies"      ./scripts/build_ios.sh libffi glib pixman libucontext libslirp
 # build_gpu_ios.sh asks for cross-ios-darwin.meson, which no script generates; build_ios.sh writes that file as cross-darwin.meson.
@@ -104,7 +108,12 @@ if [ ! -d build/ios-arm64/lib/MoltenVK.xcframework ]; then
     stage "MoltenVK" ./scripts/build_moltenvk_ios.sh
 fi
 stage   "pairing library"   ./scripts/build_rppairing_ios.sh
-stage   "app + IPA"         ./scripts/package_ipa.sh "$OUT"
+fi
 
+if [ "$WHAT" = all ] || [ "$WHAT" = package ]; then
+if [ ! -f build/ios-arm64/lib/libqemu-aarch64-softmmu.dylib ]; then
+    die "the dependencies are not built yet (run ci_build.sh deps first)"
+fi
+stage   "app + IPA"         ./scripts/package_ipa.sh "$OUT"
 ls -lh "$OUT"
-echo "IPA=$OUT" > "${GITHUB_ENV:-/dev/null}" 2>/dev/null || true
+fi
