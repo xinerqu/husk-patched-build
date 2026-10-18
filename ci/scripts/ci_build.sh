@@ -70,6 +70,10 @@ command -v xcodegen  >/dev/null || need+=(xcodegen)
 if [ ${#need[@]} -gt 0 ]; then
     brew install "${need[@]}" >> "$LOGS/toolchain.log" 2>&1 || { tail -40 "$LOGS/toolchain.log" >&2; die "brew install ${need[*]}"; }
 fi
+# virglrenderer's mesa needs PyYAML in whichever python3 meson runs (/opt/homebrew/bin/python3 here).
+python3 -c 'import yaml' 2>/dev/null || python3 -m pip install --break-system-packages -q pyyaml >> "$LOGS/toolchain.log" 2>&1 \
+    || /opt/homebrew/bin/python3 -m pip install --break-system-packages -q pyyaml >> "$LOGS/toolchain.log" 2>&1
+python3 -c 'import yaml; print("pyyaml", yaml.__version__)'
 "$HOME/.cargo/bin/rustup" target list --installed 2>/dev/null | grep -q aarch64-apple-ios \
     || "$HOME/.cargo/bin/rustup" target add aarch64-apple-ios >> "$LOGS/toolchain.log" 2>&1
 xcodebuild -version | head -2
