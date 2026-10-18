@@ -45,11 +45,10 @@ jobs:
       - name: Runner
         run: |
           sw_vers
-          # Husk is pinned to the Xcode the project was made with (README asks for Xcode 26 and the iOS 26 SDK), not the image's
-          # newest is.
-          sudo xcode-select -s /Applications/Xcode_26.0.app 2>/dev/null || sudo xcode-select -s /Applications/Xcode.app
+          # Husk is built with the Xcode the project was made for (README asks for Xcode 26 and the iOS 26 SDK), not the image's
+          # newest.
+          sudo xcode-select -s /Applications/Xcode_26.5.app 2>/dev/null || sudo xcode-select -s /Applications/Xcode.app
           xcodebuild -version
-          ls /Applications | grep -i '^Xcode' || true
           sysctl -n hw.ncpu hw.memsize
           df -h /
 
@@ -73,17 +72,6 @@ jobs:
             husk-${{ env.HUSK_REF }}-main-
             husk-${{ env.HUSK_REF }}-
 
-      # The Dalvik runtime and Android's fonts/certificates come out of the last official Husk release: regenerating them needs a
-      # mounted Lineage system image. Everything else is compiled here.
-      - name: Prebuilt Java runtime and system fonts
-        run: |
-          rel="$HUSK_REF"
-          gh release view "$rel" --repo "$HUSK_REPO" >/dev/null 2>&1 \
-            || rel="$(gh release list --repo "$HUSK_REPO" --limit 1 --json tagName --jq '.[0].tagName')"
-          echo "prebuilt parts from $HUSK_REPO release $rel"
-          gh release download "$rel" --repo "$HUSK_REPO" --pattern 'Husk.ipa' --dir "$RUNNER_TEMP" --clobber
-          python3 ci/ci/scripts/extract_assets.py "$RUNNER_TEMP/Husk.ipa" "$GITHUB_WORKSPACE/husk-prebuilt"
-
       - name: Apply the #140 patch
         run: |
           python3 ci/ci/scripts/patch_140.py husk-src
@@ -99,15 +87,65 @@ jobs:
              test_godot_kotlin.c stubs.c ../patches/140/husk-tl-jni-godot-kotlin.c -o "$RUNNER_TEMP/test_gk"
           "$RUNNER_TEMP/test_gk"
 
+      # Everything Husk links, kept between runs: the cache is saved before the app is built, so a failure in the (much faster) app
+      # build never throws the hours of QEMU/ANGLE work away.
       - name: Dependencies (QEMU, ANGLE, GPU stack, MoltenVK, pairing)
         env:
           HUSK_ROOT: ${{ github.workspace }}/husk-src
-          HUSK_PREBUILT: ${{ github.workspace }}/husk-prebuilt
         run: bash ci/ci/scripts/ci_build.sh deps
 
+      - name: Save the build cache
+        if: always() && !cancelled() && !inputs.full_rebuild
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            husk-src/third_party
+            husk-src/build
+            ~/.cargo
+          key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/deps/**', '.github/workflows/**') }}-${{ github.run_id }}
+
+  package:
+    needs: build
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      HUSK_REPO: Leviidev/Husk
+      HUSK_REF: ${{ github.event.inputs.husk_ref || 'main' }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ci
+
+      - name: Check out Husk
+        run: |
+          git clone --depth 1 --branch "$HUSK_REF" "https://github.com/$HUSK_REPO.git" husk-src || \
+            git clone "https://github.com/$HUSK_REPO.git" husk-src
+          python3 ci/ci/scripts/patch_140.py husk-src
+
+      - name: Restore the build cache (the dependencies the last job built)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            husk-src/third_party
+            husk-src/build
+            ~/.cargo
+          key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/deps/**', '.github/workflows/**') }}-${{ github.run_id }}
+          restore-keys: |
+            husk-${{ env.HUSK_REF }}-
+
+      # The Dalvik runtime and Android's fonts/certificates come out of the last official Husk release: regenerating them needs a
+      # mounted Lineage system image. Everything else is compiled here.
+      - name: Prebuilt Java runtime and system fonts
+        run: |
+          rel="$HUSK_REF"
+          gh release view "$rel" --repo "$HUSK_REPO" >/dev/null 2>&1 \
+            || rel="$(gh release list --repo "$HUSK_REPO" --limit 1 --json tagName --jq '.[0].tagName')"
+          echo "prebuilt parts from $HUSK_REPO release $rel"
+          gh release download "$rel" --repo "$HUSK_REPO" --pattern 'Husk.ipa' --dir "$RUNNER_TEMP" --clobber
+          python3 ci/ci/scripts/extract_assets.py "$RUNNER_TEMP/Husk.ipa" "$GITHUB_WORKSPACE/husk-prebuilt"
+
       - name: PS4 module (stand-in, since the real one needs private trees)
-        env:
-          HUSK_ROOT: ${{ github.workspace }}/husk-src
         run: bash ci/ci/scripts/stand_in_ps4.sh "$GITHUB_WORKSPACE/husk-src"
 
       - name: Build the app
@@ -125,16 +163,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Save the build cache
-        if: always() && !cancelled() && !inputs.full_rebuild
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            husk-src/third_party
-            husk-src/build
-            ~/.cargo
-          key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/deps/**', '.github/workflows/**') }}-${{ github.run_id }}
-
       - name: Check the app bundle
         run: |
           APP="husk-src/build/Husk.ipa"
@@ -142,13 +170,13 @@ jobs:
           unzip -l "$APP" | grep -E 'Husk.app/Husk$|Frameworks/libANGLE-shared.dylib|java-runtime/husk-framework.dex|android-system/etc/fonts.xml'
 
       - name: Publish the IPA
-        if: success()
         run: bash ci/ci/scripts/release_assets.sh "$GITHUB_WORKSPACE/husk-src/build/Husk.ipa"
 
       - name: IPA as a workflow artifact
-        if: success()
+        if: always() && !cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: husk-ipa-${{ github.run_number }}
           path: husk-src/build/Husk.ipa
+          if-no-files-found: ignore
           retention-days: 30
