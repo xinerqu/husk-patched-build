@@ -19,7 +19,9 @@
 # third_party/ + build/ only redoes what changed.
 set -uo pipefail
 
-HUSK_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"   # this script lives in <checkout>/ci/scripts
+# This script lives in <Husk checkout>/ci/scripts; the checkout is where its scripts/ and src/ are.
+HUSK_ROOT="${HUSK_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
+[ -d "$HUSK_ROOT/src/app" ] || { echo "not a Husk checkout: $HUSK_ROOT" >&2; exit 1; }
 cd "$HUSK_ROOT"
 WHAT="${1:-all}"
 OUT="${2:-$HUSK_ROOT/build/Husk.ipa}"
