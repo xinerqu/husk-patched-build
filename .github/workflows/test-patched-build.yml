@@ -65,6 +65,7 @@ jobs:
           path: |
             husk-src/third_party
             husk-src/build
+            husk-src/guests
             ~/.cargo
           key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/deps/**', '.github/workflows/**') }}-${{ github.run_id }}
           restore-keys: |
@@ -101,6 +102,7 @@ jobs:
           path: |
             husk-src/third_party
             husk-src/build
+            husk-src/guests
             ~/.cargo
           key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/deps/**', '.github/workflows/**') }}-${{ github.run_id }}
 
@@ -129,6 +131,7 @@ jobs:
           path: |
             husk-src/third_party
             husk-src/build
+            husk-src/guests
             ~/.cargo
           key: husk-${{ env.HUSK_REF }}-${{ hashFiles('ci/ci/deps/**', '.github/workflows/**') }}-${{ github.run_id }}
           restore-keys: |
