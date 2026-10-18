@@ -19,7 +19,7 @@
 # third_party/ + build/ only redoes what changed.
 set -uo pipefail
 
-# This script lives in <Husk checkout>/ci/scripts; the checkout is where its scripts/ and src/ are.
+# The Husk checkout: $HUSK_ROOT from the caller, or else where this script sits (<checkout>/ci/scripts).
 HUSK_ROOT="${HUSK_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 [ -d "$HUSK_ROOT/src/app" ] || { echo "not a Husk checkout: $HUSK_ROOT" >&2; exit 1; }
 cd "$HUSK_ROOT"
@@ -79,7 +79,7 @@ df -h "$HUSK_ROOT" | tail -1
 # ------------------------------------------- the parts that need an Android image
 
 prebaked() {
-    local assets="$HUSK_ROOT/ci/assets"
+    local assets="${HUSK_PREBUILT:-$HUSK_ROOT/ci/assets}"
     [ -d "$assets/java-runtime" ] || [ -d "$assets/android-system" ] || return 0
     step "prebuilt Java runtime and system fonts"
     [ -d "$assets/java-runtime" ]   && { rm -rf  build/java-runtime;   cp -R "$assets/java-runtime"   build/java-runtime; }
