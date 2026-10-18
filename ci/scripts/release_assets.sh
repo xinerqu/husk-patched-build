@@ -31,6 +31,8 @@ cp "$WORK/Husk.tipa" "$WORK/Husk-latest.tipa"
     echo "- **Husk-$SHA.zip** — unsigned IPA (SideStore / AltStore / Sideloadly re-sign it)"
     echo "- **Husk-$SHA.tipa** — TrollStore (ad hoc signed, Husk's entitlements kept)"
     echo "- Husk-latest.zip / Husk-latest.tipa — the same files, always the newest build"
+    echo
+    echo "Built on a GitHub runner: the PS4 layer is a stand-in (its real build needs private trees), Android apps through the translation layer are complete."
 } > "$WORK/notes.md"
 
 GH_TOKEN="${GITHUB_TOKEN:-}" gh release create "$TAG" \
