@@ -45,7 +45,12 @@ jobs:
       - name: Runner
         run: |
           sw_vers
+          # Husk is pinned to the Xcode the project was made with (README: Xcode 26 / iOS 26 SDK, Metal 4), not whatever the image's
+          # newest is.
+          sudo xcode-select -s /Applications/Xcode_26.0.app 2>/dev/null || sudo xcode-select -s /Applications/Xcode.app
           xcodebuild -version
+          ls /Applications | grep -i '^Xcode' || true
+          sysctl -n hw.ncpu hw.memsize
           df -h /
 
       - name: Check out Husk
@@ -99,6 +104,11 @@ jobs:
           HUSK_ROOT: ${{ github.workspace }}/husk-src
           HUSK_PREBUILT: ${{ github.workspace }}/husk-prebuilt
         run: bash ci/ci/scripts/ci_build.sh deps
+
+      - name: PS4 module (stand-in: its real build needs private trees)
+        env:
+          HUSK_ROOT: ${{ github.workspace }}/husk-src
+        run: bash ci/ci/scripts/stand_in_ps4.sh "$GITHUB_WORKSPACE/husk-src"
 
       - name: Build the app
         env:
