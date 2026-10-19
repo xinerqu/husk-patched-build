@@ -38,12 +38,6 @@ def main() -> int:
     dest.write_text(NEW_FILE.read_text())
     print(f"  {dest}: written")
 
-    for name in ("husk-gl-state.c", "husk-gl-fbo.c", "husk-gl-upload.c", "husk-gl-unbound.c"):
-        st = pathlib.Path(__file__).resolve().parent.parent / "diag" / name
-        if st.exists():
-            (tl / name).write_text(st.read_text())
-            print(f"  {tl / name}: written (diagnostics)")
-
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(bridge);\n',
          '    tl_jni_register_hle(bridge);\n'
@@ -60,126 +54,6 @@ def main() -> int:
          '    M("org/godotengine/godot/GodotRenderView", "getInputHandler", "()Lorg/godotengine/godot/input/GodotInputHandler;", RV_inputHandler),\n'
          '    M("org/godotengine/godot/GodotRenderView", "requestPointerCapture", "()V", Noop),\n'
          '    M("org/godotengine/godot/GodotRenderView", "releasePointerCapture", "()V", Noop),\n')
-
-
-    # ci/diag (test build): the areas that are missing raise no error; watch the state that can make a draw vanish silently.
-    edit(tl / "husk-tl-egl.c",
-         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
-         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
-         '/* ci/diag: scissor, blending, colour mask and the draw count -- none of these errors, so nothing reports them */\n'
-         'extern void husk_gldiag_scissor(int, int, int, int);\n'
-         'extern void husk_gldiag_enable(unsigned, int);\n'
-         'extern void husk_gldiag_blendfunc(unsigned, unsigned);\n'
-         'extern void husk_gldiag_depthmask(int);\n'
-         'extern void husk_gldiag_colormask(int, int, int, int);\n'
-         'extern void husk_gldiag_frontface(unsigned);\n'
-         'extern void husk_gldiag_draw(void);\n'
-         'extern void husk_gldiag_tick(void);\n'
-         'static void (*r_glScissor)(int, int, int, int);\n'
-         'static void (*r_glBlendFunc)(unsigned, unsigned);\n'
-         'static void (*r_glEnable)(unsigned);\n'
-         'static void (*r_glDisable)(unsigned);\n'
-         'static void w_glScissor(int x, int y, int w, int h) { r_glScissor(x, y, w, h); husk_gldiag_scissor(x, y, w, h); }\n'
-         'static void w_glBlendFunc(unsigned s, unsigned d) { r_glBlendFunc(s, d); husk_gldiag_blendfunc(s, d); }\n'
-         
-         'static void w_glEnable(unsigned c) { r_glEnable(c); husk_gldiag_enable(c, 1); }\n'
-         'static void w_glDisable(unsigned c) { r_glDisable(c); husk_gldiag_enable(c, 0); }\n'
-         'static void (*r_glDrawElements)(unsigned, int, unsigned, const void *);\n'
-         'static void (*r_glDrawArrays)(unsigned, int, int);\n'
-         'static void w_glDrawElements(unsigned m, int c, unsigned t, const void *i) { husk_gldiag_draw(); r_glDrawElements(m, c, t, i); }\n'
-         'static void w_glDrawArrays(unsigned m, int f, int c) { husk_gldiag_draw(); r_glDrawArrays(m, f, c); }\n'
-         'static void (*r_glFrontFace)(unsigned);\n'
-         'static void w_glFrontFace(unsigned m) { r_glFrontFace(m); husk_gldiag_frontface(m); }\n')
-
-    edit(tl / "husk-tl-egl.c",
-         '    if (n <= 3 || n % 600 == 0) {\n',
-         '    { extern void husk_gldiag_frame(unsigned long); husk_gldiag_frame(n); }\n'
-         '    { extern void husk_gldiag_tick(void); husk_gldiag_tick(); }\n'
-         '    { extern void husk_gldiag_fbo_frame(unsigned long); husk_gldiag_fbo_frame(n); }\n'
-         '    { extern void husk_gldiag_upload_tick(unsigned long); husk_gldiag_upload_tick(n); }\n'
-         '    if (n <= 3 || n % 600 == 0) {\n')
-
-
-    # ci/diag: the draws are issued and nothing in the state is wrong, so ask where they land -- an off-screen target
-    # that is never presented, or one ANGLE cannot back.
-    edit(tl / "husk-tl-egl.c",
-         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
-         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
-         'extern void husk_gldiag_fbo(unsigned target, unsigned id, int draws_since);\n'
-         'extern void husk_gldiag_fbo_set_real(void *check, void *getiv);\n'
-         'static void (*r_glBindFramebuffer)(unsigned, unsigned);\n'
-         'static void w_glBindFramebuffer(unsigned t, unsigned id)\n'
-         '{\n'
-         '    r_glBindFramebuffer(t, id);\n'
-         '    husk_gldiag_fbo_set_real((void *)a_eglGetProcAddress("glCheckFramebufferStatus"), (void *)a_eglGetProcAddress("glGetIntegerv"));\n'
-         '    husk_gldiag_fbo(t, id, 0);\n'
-
-         '}\n')
-
-
-    # ci/diag: the draws reach the screen and the state is right, so the question is whether the pixels ever reached the
-    # textures -- glTexSubImage2D and the compressed upload were never watched.
-    edit(tl / "husk-tl-egl.c",
-         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
-         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
-         'extern void husk_gldiag_upload_set_real(void *, void *);\n'
-         'extern void husk_gldiag_upload_tick(unsigned long);\n'
-         'static void (*r_glTexSubImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);\n'
-         'static unsigned ci_upload_error(void)\n'
-         '{\n'
-         '    static unsigned (*g)(void);\n'
-         '    if (!g) g = (unsigned (*)(void))a_eglGetProcAddress("glGetError");\n'
-         '    return g ? g() : 0;\n'
-         '}\n'
-         'static void w_glTexSubImage2D(unsigned t, int l, int x, int y, int w, int h, unsigned f, unsigned ty, const void *px)\n'
-         '{\n'
-         '    r_glTexSubImage2D(t, l, x, y, w, h, f, ty, px);\n'
-         '    husk_gldiag_upload_set_real((void *)a_eglGetProcAddress("glGetError"), (void *)a_eglGetProcAddress("glGetIntegerv"));\n'
-         '    husk_gldiag_subimage(f, ty, w, h, ci_upload_error());\n'
-         '}\n')
-
-
-    # ci/diag: glTexImage2D and the compressed form were wrapped in an earlier round and lost in a rebase; restore them, and
-    # report each upload to the module that counts formats and catches a refusal.
-    edit(tl / "husk-tl-egl.c",
-         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
-         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
-         'extern void husk_gldiag_image(unsigned, unsigned, unsigned, int, int, unsigned);\n'
-         'extern void husk_gldiag_subimage(unsigned, unsigned, int, int, unsigned);\n'
-         'extern void husk_gldiag_compressed(unsigned, int, int, int, unsigned);\n'
-         'static void (*r_glTexImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);\n'
-         'static void (*r_glCompressedTexImage2D)(unsigned, int, unsigned, int, int, int, int, const void *);\n'
-         'static unsigned ci_upload_error(void);\n'
-         'extern void husk_gldiag_bound_state(unsigned target, unsigned bound, unsigned caller);\n'
-         'extern unsigned husk_gldiag_bound_of(unsigned target);\n'
-         'static void w_glTexImage2D(unsigned t, int lv, int ifmt, int w, int h, int b, unsigned fmt, unsigned ty, const void *px)\n'
-         '{\n'
-         '    /* An upload with nothing bound is refused, and the texture then holds no content: record who did it. */\n'
-         '    husk_gldiag_bound_state(t, husk_gldiag_bound_of(t), (unsigned)(uintptr_t)__builtin_return_address(0));\n'
-         '    r_glTexImage2D(t, lv, ifmt, w, h, b, fmt, ty, px);\n'
-         '    unsigned e = ci_upload_error();\n'
-         '    husk_gldiag_image((unsigned)ifmt, fmt, ty, w, h, e);\n'
-         '}\n'
-         'static void w_glCompressedTexImage2D(unsigned t, int lv, unsigned ifmt, int w, int h, int b, int sz, const void *px)\n'
-         '{\n'
-         '    r_glCompressedTexImage2D(t, lv, ifmt, w, h, b, sz, px);\n'
-         '    husk_gldiag_compressed(ifmt, w, h, sz, ci_upload_error());\n'
-         '}\n')
-
-
-    # ci/diag: the refused upload has nothing bound, so record every binding (a ring of the last 16) to see what cleared it.
-    edit(tl / "husk-tl-egl.c",
-         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
-         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
-         'extern void husk_gldiag_bind_note(unsigned, unsigned);\n'
-         'static void (*r_glBindTexture)(unsigned, unsigned);\n'
-         'static void w_glBindTexture(unsigned t, unsigned id) { r_glBindTexture(t, id); husk_gldiag_bind_note(t, id); }\n')
-
-    edit(tl / "husk-tl-egl.c",
-         '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n',
-         '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n'
-         '    ADAPT(glScissor), ADAPT(glBlendFunc), ADAPT(glEnable), ADAPT(glDisable), ADAPT(glFrontFace), ADAPT(glBindFramebuffer),\n'
-         '    ADAPT(glDrawElements), ADAPT(glDrawArrays), ADAPT(glTexSubImage2D), ADAPT(glTexImage2D), ADAPT(glCompressedTexImage2D), ADAPT(glBindTexture),\n')
 
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(k_godot);\n',
