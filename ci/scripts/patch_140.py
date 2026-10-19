@@ -40,10 +40,11 @@ def main() -> int:
 
     # The test build's rendering diagnostics (not part of the fix): makes the renderer say which texture formats it has and any
     # GL error it raises, so a log can explain "assets load but do not draw".
-    diag = pathlib.Path(__file__).resolve().parent.parent / "diag" / "husk-gl-diag.c"
-    if diag.exists():
-        (tl / diag.name).write_text(diag.read_text())
-        print(f"  {tl / diag.name}: written (diagnostic build)")
+    for name in ("husk-gl-diag.c", "husk-gl-texdiag.c"):
+        diag = pathlib.Path(__file__).resolve().parent.parent / "diag" / name
+        if diag.exists():
+            (tl / name).write_text(diag.read_text())
+            print(f"  {tl / name}: written (diagnostic build)")
 
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(bridge);\n',
@@ -72,6 +73,13 @@ def main() -> int:
          '        if (step(env, cls)) swapBuffers(dpy, surf);\n',
          '        if (step(env, cls)) swapBuffers(dpy, surf);\n'
          '        { extern void husk_gl_diagnostics_check(const char *); husk_gl_diagnostics_check("a frame"); }\n')
+
+    # ci/diag, second pass: catch a GL_INVALID_ENUM at the texture call that raised it.
+    edit(tl / "husk-tl-egl.c",
+         '    if (!real) return NULL;\n',
+         '    if (!real) return NULL;\n'
+         '    { extern void *husk_gl_diag_install(const char *, void *); void *wrapped = husk_gl_diag_install(name, real);\n'
+         '      if (wrapped != real) return wrapped; }\n')
 
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(k_godot);\n',
