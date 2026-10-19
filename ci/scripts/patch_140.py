@@ -38,6 +38,13 @@ def main() -> int:
     dest.write_text(NEW_FILE.read_text())
     print(f"  {dest}: written")
 
+    # ci/diag: a test build's GL hook, added to k_adapt below (diagnostics only).
+    hook = pathlib.Path(__file__).resolve().parent.parent / "diag" / "husk-gl-bindhook.c"
+    if not hook.exists():
+        sys.exit("missing ci/diag/husk-gl-bindhook.c")
+    (tl / hook.name).write_text(hook.read_text())
+    print(f"  {tl / hook.name}: written (diagnostics)")
+
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(bridge);\n',
          '    tl_jni_register_hle(bridge);\n'
@@ -54,6 +61,48 @@ def main() -> int:
          '    M("org/godotengine/godot/GodotRenderView", "getInputHandler", "()Lorg/godotengine/godot/input/GodotInputHandler;", RV_inputHandler),\n'
          '    M("org/godotengine/godot/GodotRenderView", "requestPointerCapture", "()V", Noop),\n'
          '    M("org/godotengine/godot/GodotRenderView", "releasePointerCapture", "()V", Noop),\n')
+
+
+    # ci/diag: the previous rounds wrapped GL through a path the engine never uses. k_adapt is the table eglGetProcAddress
+    # consults, so this is where a wrapper is actually reached. Logs only.
+    edit(tl / "husk-tl-egl.c",
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
+         '/* ci/diag: reached through eglGetProcAddress, which is how the engine takes every GL entry point */\n'
+         'extern void husk_gldiag_bind(unsigned, unsigned), husk_gldiag_texparam(unsigned, unsigned, long, unsigned);\n'
+         'extern void husk_gldiag_gen(int), husk_gldiag_del(int);\n'
+         'static void (*r_glBindTexture)(unsigned, unsigned);\n'
+         'static void (*r_glGenTextures)(int, unsigned *);\n'
+         'static void (*r_glDeleteTextures)(int, const unsigned *);\n'
+         'static void (*r_glTexParameteri)(unsigned, unsigned, int);\n'
+         'static void (*r_glTexParameterf)(unsigned, unsigned, float);\n'
+         'static unsigned diag_take_error(void)\n'
+         '{\n'
+         '    static unsigned (*g)(void);\n'
+         '    if (!g) g = (unsigned (*)(void))a_eglGetProcAddress("glGetError");\n'
+         '    return g ? g() : 0;\n'
+         '}\n'
+         'static void w_glBindTexture(unsigned t, unsigned id)\n'
+         '{\n'
+         '    r_glBindTexture(t, id);\n'
+         '    husk_gldiag_bind(t, id);\n'
+         '    { unsigned e = diag_take_error(); if (e) husk_gldiag_texparam(t, 0, id, e); }\n'
+         '}\n'
+         'static void w_glGenTextures(int n, unsigned *ids) { r_glGenTextures(n, ids); husk_gldiag_gen(n); }\n'
+         'static void w_glDeleteTextures(int n, const unsigned *ids) { r_glDeleteTextures(n, ids); husk_gldiag_del(n); }\n'
+         'static void w_glTexParameteri(unsigned t, unsigned p, int v) { r_glTexParameteri(t, p, v); husk_gldiag_texparam(t, p, v, diag_take_error()); }\n'
+         'static void w_glTexParameterf(unsigned t, unsigned p, float v) { r_glTexParameterf(t, p, v); husk_gldiag_texparam(t, p, (long)v, diag_take_error()); }\n')
+
+    edit(tl / "husk-tl-egl.c",
+         '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n',
+         '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n'
+         '    ADAPT(glBindTexture), ADAPT(glGenTextures), ADAPT(glDeleteTextures), ADAPT(glTexParameteri), ADAPT(glTexParameterf),\n'
+         '    ADAPT(glTexParameteri), ADAPT(glTexParameterf),\n')
+
+    edit(tl / "husk-tl-egl.c",
+         '    a_glGetIntegerv = a_eglGetProcAddress("glGetIntegerv");\n',
+         '    a_glGetIntegerv = a_eglGetProcAddress("glGetIntegerv");\n'
+         '    { extern void husk_gldiag_set_real(void *); husk_gldiag_set_real((void *)a_glGetIntegerv); }\n')
 
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(k_godot);\n',
