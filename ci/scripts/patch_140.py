@@ -38,12 +38,7 @@ def main() -> int:
     dest.write_text(NEW_FILE.read_text())
     print(f"  {dest}: written")
 
-    lf = pathlib.Path(__file__).resolve().parent.parent / "fix" / "husk-gl-legacyformats.c"
-    if lf.exists():
-        (tl / lf.name).write_text(lf.read_text())
-        print(f"  {tl / lf.name}: written (fix)")
-
-    for name in ("husk-gl-state.c", "husk-gl-fbo.c", "husk-gl-upload.c"):
+    for name in ("husk-gl-state.c", "husk-gl-fbo.c", "husk-gl-upload.c", "husk-gl-unbound.c"):
         st = pathlib.Path(__file__).resolve().parent.parent / "diag" / name
         if st.exists():
             (tl / name).write_text(st.read_text())
@@ -155,15 +150,12 @@ def main() -> int:
          'static void (*r_glTexImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);\n'
          'static void (*r_glCompressedTexImage2D)(unsigned, int, unsigned, int, int, int, int, const void *);\n'
          'static unsigned ci_upload_error(void);\n'
-         'extern unsigned husk_gl_legacy_internal(unsigned);\n'
-         'extern unsigned husk_gl_legacy_format(unsigned);\n'
-         'extern int husk_gl_legacy(unsigned, unsigned);\n'
+         'extern void husk_gldiag_bound_state(unsigned target, unsigned bound, unsigned caller);\n'
+         'extern unsigned husk_gldiag_bound_of(unsigned target);\n'
          'static void w_glTexImage2D(unsigned t, int lv, int ifmt, int w, int h, int b, unsigned fmt, unsigned ty, const void *px)\n'
          '{\n'
-         '    /* GL_LUMINANCE / LUMINANCE_ALPHA / ALPHA are GLES 2 formats: in a 3.0 context ANGLE refuses them, and the texture\n'
-         '     * then holds nothing while the engine keeps drawing with it. Send the equivalent 3.0 format instead. */\n'
-         '    ifmt = (int)husk_gl_legacy_internal((unsigned)ifmt);\n'
-         '    fmt = husk_gl_legacy_format(fmt);\n'
+         '    /* An upload with nothing bound is refused, and the texture then holds no content: record who did it. */\n'
+         '    husk_gldiag_bound_state(t, husk_gldiag_bound_of(t), (unsigned)(uintptr_t)__builtin_return_address(0));\n'
          '    r_glTexImage2D(t, lv, ifmt, w, h, b, fmt, ty, px);\n'
          '    unsigned e = ci_upload_error();\n'
          '    husk_gldiag_image((unsigned)ifmt, fmt, ty, w, h, e);\n'
@@ -174,11 +166,20 @@ def main() -> int:
          '    husk_gldiag_compressed(ifmt, w, h, sz, ci_upload_error());\n'
          '}\n')
 
+
+    # ci/diag: the refused upload has nothing bound, so record every binding (a ring of the last 16) to see what cleared it.
+    edit(tl / "husk-tl-egl.c",
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
+         'extern void husk_gldiag_bind_note(unsigned, unsigned);\n'
+         'static void (*r_glBindTexture)(unsigned, unsigned);\n'
+         'static void w_glBindTexture(unsigned t, unsigned id) { r_glBindTexture(t, id); husk_gldiag_bind_note(t, id); }\n')
+
     edit(tl / "husk-tl-egl.c",
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n',
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n'
          '    ADAPT(glScissor), ADAPT(glBlendFunc), ADAPT(glEnable), ADAPT(glDisable), ADAPT(glFrontFace), ADAPT(glBindFramebuffer),\n'
-         '    ADAPT(glDrawElements), ADAPT(glDrawArrays), ADAPT(glTexSubImage2D), ADAPT(glTexImage2D), ADAPT(glCompressedTexImage2D),\n')
+         '    ADAPT(glDrawElements), ADAPT(glDrawArrays), ADAPT(glTexSubImage2D), ADAPT(glTexImage2D), ADAPT(glCompressedTexImage2D), ADAPT(glBindTexture),\n')
 
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(k_godot);\n',
