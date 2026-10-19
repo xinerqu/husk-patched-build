@@ -349,35 +349,71 @@ static void unit_fileClose(tl_jcall *c)
  * Each call arrives with its arguments in its own signature's order, so the access type the Kotlin forms dropped is simply not
  * there. dirExists, makeDir, remove, rename and fileExists kept theirs; fileLastModified answers in seconds there.
  */
+/* The classes the engine may hold for these two handlers. Godot 4.7 asks directory_access_handler for dir* and file_access_handler
+ * for file*, but the log of #140 shows the calls landing on GodotNetUtils and on DirectoryAccessHandler instead, so each object it
+ * could be holding gets the answers too; the first line each call logs says which one its lookup found. */
+static const char *const k_da_classes[] = {
+    DA, "org/godotengine/godot/utils/GodotNetUtils", "org/godotengine/godot/Godot",
+    "org/godotengine/godot/nativeapi/GodotNativeBridge", "android/content/res/AssetManager",
+};
+static const char *const k_fa_classes[] = {
+    FA, DA, "org/godotengine/godot/utils/GodotNetUtils",
+};
+
+#define MAXK (48 + 6 * 6)
 void tl_godot_kotlin_install(void)
 {
-    static const tl_jhle k[] = {
+    static tl_jhle k[MAXK];
+    static tl_jhle kf[MAXK];
+    static const struct { const char *c, *n, *s; tl_jhle_fn f; } base[] = {
         { FA, "fileOpen", "(Ljava/lang/String;I)I", kotlin_fileOpen },
         { FA, "fileRead", "(ILjava/nio/ByteBuffer;)I", kotlin_fileRead },
         { FA, "fileWrite", "(ILjava/nio/ByteBuffer;)Z", kotlin_fileWrite },
         { FA, "fileWrite", "(ILjava/nio/ByteBuffer;)V", void_fileWrite },
         { FA, "fileResize", "(IJ)V", kotlin_fileResize },
         { FA, "fileResize", "(IJ)I", int_fileResize },
-        { FA, "fileSeek", "(IJ)V", unit_fileSeek }, { FA, "fileSeekFromEnd", "(IJ)V", unit_fileSeekFromEnd },
-        { FA, "fileFlush", "(I)V", unit_fileFlush }, { FA, "fileClose", "(I)V", unit_fileClose },
-        { FA, "fileGetPosition", "(I)J", name_fileGetPosition }, { FA, "fileGetSize", "(I)J", name_fileGetSize },
-        { FA, "isFileEof", "(I)Z", name_isFileEof }, { FA, "setFileEof", "(IZ)V", name_setFileEof },
+        { FA, "fileSeek", "(IJ)V", unit_fileSeek },
+        { FA, "fileSeekFromEnd", "(IJ)V", unit_fileSeekFromEnd },
+        { FA, "fileFlush", "(I)V", unit_fileFlush },
+        { FA, "fileClose", "(I)V", unit_fileClose },
+        { FA, "fileGetPosition", "(I)J", name_fileGetPosition },
+        { FA, "fileGetSize", "(I)J", name_fileGetSize },
+        { FA, "isFileEof", "(I)Z", name_isFileEof },
+        { FA, "setFileEof", "(IZ)V", name_setFileEof },
         { FA, "fileExists", "(Ljava/lang/String;)Z", name_fileExists },
         { FA, "fileSize", "(Ljava/lang/String;)J", name_fileSize },
         { FA, "fileLastModified", "(Ljava/lang/String;)J", name_fileLastModified },
         { FA, "fileLastAccessed", "(Ljava/lang/String;)J", name_fileLastAccessed },
-        { DA, "dirOpen", "(I)I", kotlin_dirOpen }, { DA, "dirOpen", "(ILjava/lang/String;)I", kotlin_dirOpen },
-        { DA, "dirNext", "(I)Ljava/lang/String;", kotlin_dirNext }, { DA, "dirClose", "(I)V", kotlin_dirClose },
-        { DA, "dirIsDir", "(I)Z", kotlin_dirIsDir }, { DA, "isCurrentHidden", "(I)Z", kotlin_isCurrentHidden },
+        { DA, "dirOpen", "(I)I", kotlin_dirOpen },
+        { DA, "dirOpen", "(ILjava/lang/String;)I", kotlin_dirOpen },
+        { DA, "dirNext", "(I)Ljava/lang/String;", kotlin_dirNext },
+        { DA, "dirClose", "(I)V", kotlin_dirClose },
+        { DA, "dirIsDir", "(I)Z", kotlin_dirIsDir },
+        { DA, "isCurrentHidden", "(I)Z", kotlin_isCurrentHidden },
         { DA, "dirExists", "(ILjava/lang/String;)Z", dirExists_create },
         { DA, "makeDir", "(ILjava/lang/String;)Z", makeDir_create },
         { DA, "remove", "(ILjava/lang/String;)Z", remove_path },
         { DA, "rename", "(ILjava/lang/String;Ljava/lang/String;)Z", rename_path },
-        { NULL, NULL, NULL, NULL }
     };
+    size_t n = 0, nf = 0;
+    for (size_t i = 0; i < sizeof(base) / sizeof(base[0]) && n + 1 < MAXK; i++) {
+        for (size_t c = 0; c < sizeof(k_da_classes) / sizeof(k_da_classes[0]) && n + 1 < MAXK; c++) {
+            if (strcmp(base[i].c, DA)) continue;
+            k[n] = (tl_jhle){ k_da_classes[c], base[i].n, base[i].s, base[i].f };
+            n++;
+        }
+        for (size_t c = 0; c < sizeof(k_fa_classes) / sizeof(k_fa_classes[0]) && nf + 1 < MAXK; c++) {
+            if (strcmp(base[i].c, FA)) continue;
+            kf[nf] = (tl_jhle){ k_fa_classes[c], base[i].n, base[i].s, base[i].f };
+            nf++;
+        }
+    }
+    k[n] = (tl_jhle){ NULL, NULL, NULL, NULL };
+    kf[nf] = (tl_jhle){ NULL, NULL, NULL, NULL };
     tl_jni_register_hle(k);
-    /* One line per run, so a log says whether these answers were registered at all (#140 went one build without it). */
-    tl_log_line("godot: %zu Kotlin directory/file signatures registered (dirNext(I), fileOpen(String,int), fileWrite->Z, ...)",
-                sizeof(k) / sizeof(k[0]) - 1);
-    trace_point("registered", NULL);   /* "godot: HUSK140 registered" -- the line before the engine's first lookup */
+    tl_jni_register_hle(kf);
+    tl_log_line("godot: %zu directory answers on %zu classes, %zu file answers on %zu classes",
+                n / (sizeof(k_da_classes) / sizeof(k_da_classes[0])), sizeof(k_da_classes) / sizeof(k_da_classes[0]),
+                nf / (sizeof(k_fa_classes) / sizeof(k_fa_classes[0])), sizeof(k_fa_classes) / sizeof(k_fa_classes[0]));
+    trace_point("registered", NULL);
 }

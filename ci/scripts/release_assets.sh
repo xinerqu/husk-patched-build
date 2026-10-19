@@ -11,25 +11,19 @@ IPA="${1:?ipa}"
 WORK="$(mktemp -d)"
 
 cp "$IPA" "$WORK/Husk-$SHA.ipa"
-# The sideloaded IPA only: a TrollStore .tipa is a second codesign pass, and this build is for one test install at a time.
-FILES=("$WORK/Husk-$SHA.ipa")
-
-# Zip the .ipa's Payload so each archive is one file the installers can take directly.
-( cd "$WORK" && mv "Husk-$SHA.ipa" Husk.ipa && zip -qry -0 "Husk-$SHA.zip" Husk.ipa && mv Husk.ipa "Husk-$SHA.ipa" )
-cp "$WORK/Husk-$SHA.zip" "$WORK/Husk-latest.zip"
-FILES+=("$WORK/Husk-$SHA.zip" "$WORK/Husk-latest.zip")
+cp "$IPA" "$WORK/Husk-latest.ipa"
 
 {
     echo "Husk, built from \`${GITHUB_SHA:0:7}\` on $(date -u '+%Y-%m-%d %H:%M UTC')."
     echo
-    echo "- **Husk-$SHA.zip** — unsigned IPA (SideStore / AltStore / Sideloadly re-sign it)"
-    echo "- Husk-latest.zip — the same IPA, always the newest build"
+    echo "- **Husk-latest.ipa** — unsigned IPA, the newest build (SideStore / AltStore / Sideloadly re-sign it)"
+    echo "- Husk-$SHA.ipa — the same file under its commit"
     echo
-    echo "Built on a GitHub runner: the PS4 layer is a stand-in (its real build needs private trees), Android apps through the translation layer are complete."
+    echo "The PS4 layer is a stand-in in this build (its real build needs private trees); everything the Android translation layer runs, Godot included, is here."
 } > "$WORK/notes.md"
 
 GH_TOKEN="${GITHUB_TOKEN:-}" gh release create "$TAG" \
-    "${FILES[@]}" \
+    "$WORK/Husk-$SHA.ipa" "$WORK/Husk-latest.ipa" \
     --repo "$GITHUB_REPOSITORY" --title "Husk build $GITHUB_RUN_NUMBER ($SHA)" \
     --notes-file "$WORK/notes.md" --latest
 echo "release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"

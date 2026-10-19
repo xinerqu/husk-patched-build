@@ -137,7 +137,21 @@ int main(void)
         check(stat(deep, &st) == 0 && S_ISDIR(st.st_mode), "dirExists creates the folder it is asked about");
     }
 
-    /* 6. fileResize truncates. */
+    /* 6. The same answers, on the classes the log of #140 showed the engine using. */
+    {
+        const char *const alt[][3] = {
+            { "org/godotengine/godot/utils/GodotNetUtils", "dirNext", "(I)Ljava/lang/String;" },
+            { "org/godotengine/godot/utils/GodotNetUtils", "makeDir", "(ILjava/lang/String;)Z" },
+            { "org/godotengine/godot/io/directory/DirectoryAccessHandler", "fileOpen", "(Ljava/lang/String;I)I" },
+        };
+        for (size_t i = 0; i < sizeof(alt) / sizeof(alt[0]); i++) {
+            char what[200];
+            snprintf(what, sizeof(what), "finds %s.%s (a class #140's log used)", alt[i][0], alt[i][1]);
+            check(test_find(alt[i][0], alt[i][1], alt[i][2]) != NULL, what);
+        }
+    }
+
+    /* 7. fileResize truncates. */
     {
         jvalue a[2] = { { .l = tl_jni_new_string(save) }, V(3) };
         jvalue fid = call(FA, "fileOpen", "(Ljava/lang/String;I)I", a);

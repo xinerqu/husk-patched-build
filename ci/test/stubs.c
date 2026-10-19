@@ -55,17 +55,23 @@ void tl_log_line(const char *fmt, ...)
 }
 
 /* Like hle_find in husk-tl-jni.c: the class, the name, and the exact signature. */
-static const tl_jhle *g_hle;
+static const tl_jhle *g_hle[8];
+static size_t g_nhle;
 static void (*g_install)(void);
 
-void tl_jni_register_hle(const tl_jhle *table) { g_hle = table; }
+/* Like husk-tl-jni.c: every table registered, searched in order. */
+void tl_jni_register_hle(const tl_jhle *table)
+{
+    if (g_nhle < sizeof(g_hle) / sizeof(g_hle[0])) g_hle[g_nhle++] = table;
+}
 void test_set_install(void (*fn)(void)) { g_install = fn; }
 
 tl_jhle_fn test_find(const char *cls, const char *name, const char *sig)
 {
-    if (!g_hle && g_install) g_install();
-    for (const tl_jhle *e = g_hle; e && e->cls; e++)
-        if (!strcmp(e->cls, cls) && !strcmp(e->name, name) && !strcmp(e->sig, sig)) return e->fn;
+    if (!g_nhle && g_install) g_install();
+    for (size_t t = 0; t < g_nhle; t++)
+        for (const tl_jhle *e = g_hle[t]; e && e->cls; e++)
+            if (!strcmp(e->cls, cls) && !strcmp(e->name, name) && !strcmp(e->sig, sig)) return e->fn;
     return NULL;
 }
 
