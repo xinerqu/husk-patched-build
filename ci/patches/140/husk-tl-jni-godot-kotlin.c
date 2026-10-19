@@ -353,4 +353,7 @@ void tl_godot_kotlin_install(void)
         { NULL, NULL, NULL, NULL }
     };
     tl_jni_register_hle(k);
+    /* One line per run, so a log says whether these answers were registered at all (#140 went one build without it). */
+    tl_log_line("godot: %zu Kotlin directory/file signatures registered (dirNext(I), fileOpen(String,int), fileWrite->Z, ...)",
+                sizeof(k) / sizeof(k[0]) - 1);
 }
