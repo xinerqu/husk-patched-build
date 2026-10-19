@@ -38,15 +38,6 @@ def main() -> int:
     dest.write_text(NEW_FILE.read_text())
     print(f"  {dest}: written")
 
-    # The test build's rendering diagnostics (not part of the fix): makes the renderer say which texture formats it has and any
-    # GL error it raises, so a log can explain "assets load but do not draw".
-    for part, name in (("diag", "husk-gl-diag.c"), ("diag", "husk-gl-texdiag.c"), ("diag", "husk-gl-probe.c"),
-                       ("fix", "husk-gl-namepool.c")):
-        src = pathlib.Path(__file__).resolve().parent.parent / part / name
-        if src.exists():
-            (tl / name).write_text(src.read_text())
-            print(f"  {tl / name}: written ({part})")
-
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(bridge);\n',
          '    tl_jni_register_hle(bridge);\n'
@@ -63,44 +54,6 @@ def main() -> int:
          '    M("org/godotengine/godot/GodotRenderView", "getInputHandler", "()Lorg/godotengine/godot/input/GodotInputHandler;", RV_inputHandler),\n'
          '    M("org/godotengine/godot/GodotRenderView", "requestPointerCapture", "()V", Noop),\n'
          '    M("org/godotengine/godot/GodotRenderView", "releasePointerCapture", "()V", Noop),\n')
-
-    # A test build only (ci/diag): the renderer cannot say why an asset does not draw, and this makes it say.
-    edit(tl / "husk-tl-godot.c",
-         '    if (swapInterval) swapInterval(dpy, 1);\n',
-         '    if (swapInterval) swapInterval(dpy, 1);\n'
-         '    extern void husk_gl_diagnostics_install(void);\n'
-         '    husk_gl_diagnostics_install();   /* ci/diag: prints the GPU\'s texture formats and turns on GL error output */\n')
-    edit(tl / "husk-tl-godot.c",
-         '        if (step(env, cls)) swapBuffers(dpy, surf);\n',
-         '        if (step(env, cls)) swapBuffers(dpy, surf);\n'
-         '        { extern void husk_gl_diagnostics_check(const char *); husk_gl_diagnostics_check("a frame"); }\n')
-
-    # ci/diag, second pass: catch a GL_INVALID_ENUM at the texture call that raised it.
-    edit(tl / "husk-tl-egl.c",
-         '    if (n <= 3 || n % 600 == 0) {\n',
-         '    { extern void husk_gl_diag_swap(unsigned long); husk_gl_diag_swap(n); }   /* ci/diag: the frame an error is quoted against */\n'
-         '    if (n <= 3 || n % 600 == 0) {\n')
-
-    edit(tl / "husk-tl-egl.c",
-         'static EGLint (*r_eglClientWaitSyncKHR)(EGLDisplay, void *, EGLint, uint64_t);',
-         'static EGLint (*r_eglClientWaitSyncKHR)(EGLDisplay, void *, EGLint, uint64_t);')
-
-    edit(tl / "husk-tl-egl.c",
-         '    { extern void husk_gl_diag_swap(unsigned long); husk_gl_diag_swap(n); }   /* ci/diag: the frame an error is quoted against */\n',
-         '    { extern void husk_gl_diag_swap(unsigned long); husk_gl_diag_swap(n); }   /* ci/diag: the frame an error is quoted against */\n'
-         '    { extern void husk_gl_frame_end(unsigned long); husk_gl_frame_end(n); }\n')
-
-    # The name pool sits closest to ANGLE (it must receive the real entry points), the diagnostics wrap it and so see the
-    # guest's own texture names.
-    edit(tl / "husk-tl-egl.c",
-         '    if (!real) return NULL;\n',
-         '    if (!real) return NULL;\n'
-         '    /* ci: give ANGLE a name pool it never has to recycle -- GL allows a game to reuse a deleted name, and ANGLE mixes the\n'
-         '     * two up once it has (report after #140: GL_INVALID_ENUM on a valid, bound texture). */\n'
-         '    { extern void *husk_gl_names_install(const char *, void *); void *named = husk_gl_names_install(name, real);\n'
-         '      if (named != real) return named; }\n'
-         '    { extern void *husk_gl_diag_install(const char *, void *); void *wrapped = husk_gl_diag_install(name, real);\n'
-         '      if (wrapped != real) return wrapped; }\n')
 
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(k_godot);\n',
