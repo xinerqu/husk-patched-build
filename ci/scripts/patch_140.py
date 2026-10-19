@@ -76,6 +76,11 @@ def main() -> int:
 
     # ci/diag, second pass: catch a GL_INVALID_ENUM at the texture call that raised it.
     edit(tl / "husk-tl-egl.c",
+         '    if (n <= 3 || n % 600 == 0) {\n',
+         '    { extern void husk_gl_diag_swap(unsigned long); husk_gl_diag_swap(n); }   /* ci/diag: the frame an error is quoted against */\n'
+         '    if (n <= 3 || n % 600 == 0) {\n')
+
+    edit(tl / "husk-tl-egl.c",
          '    if (!real) return NULL;\n',
          '    if (!real) return NULL;\n'
          '    { extern void *husk_gl_diag_install(const char *, void *); void *wrapped = husk_gl_diag_install(name, real);\n'

@@ -1,8 +1,15 @@
-/* A test build's texture diagnostics: catches a GL_INVALID_ENUM at the call that raised it, with the arguments that matter.
+/* A test build's texture diagnostics: catches a GL_INVALID_ENUM at the call that raised it, and says enough around it to tell
+ * what went wrong -- the texture object, its binding, the last calls, and whether the renderer was mid-frame.
  *
- * The first pass (husk-gl-diag.c) showed one `gl: error 0x500` in a run and nothing more: a GL error names no call. These wrappers
- * sit on the texture entry points Godot's Compatibility renderer uses and check glGetError immediately after each, so the log line
- * carries the function and its format/size arguments -- enough to say which texture format ANGLE refused.
+ * What a log needs for "textures load but do not draw" (the report after #140's directory fix):
+ *
+ *   1. the GPU's format capabilities       (husk-gl-diag.c: texture formats, sizes, GL error output)
+ *   2. the failing call and its arguments  (here: glTexImage2D/glTexStorage2D/glTexParameteri/... with named enums)
+ *   3. the texture object and its state    (here: the id, the bound target, how many times it was bound/uploaded/deleted)
+ *   4. the surrounding GL calls            (tl_egl_recent_calls: the ring of the last 256 entry points)
+ *   5. the frame it happened on            (here: swap counter + whether it was between swap and clear)
+ *
+ * Nothing here changes behaviour: every wrapper calls through and returns.
  *
  * Diagnostic build only: not part of the fix proposed in #140.
  */
@@ -21,19 +28,28 @@ typedef int GLint;
 typedef int GLsizei;
 typedef void *GLvoid;
 
+void *tl_egl_resolve(const char *name);
+void tl_egl_recent_calls(char *out, size_t n, int count);
+
 static GLenum (*x_glGetError)(void);
-static void need_error(void);
+static GLint (*x_glGetIntegerv)(GLenum, GLint *);
 
 static int g_reported;
+static unsigned long g_swap;
 
 #define GL_INVALID_ENUM 0x0500
+#define GL_TEXTURE_BINDING_2D 0x8069
+#define GL_TEXTURE_BINDING_3D 0x806A
+#define GL_TEXTURE_BINDING_CUBE_MAP 0x8514
+#define GL_ACTIVE_TEXTURE 0x84E0
+#define GL_CURRENT_PROGRAM 0x8B8D
+#define GL_MAX_TEXTURE_SIZE 0x0D33
 
-/* The second pass only reports, never behaves: every wrapper calls through and returns, whatever happened. */
+/* ------------------------------------------------------------------ names */
 
-/* The names Godot's texture storage passes, so a log line reads like the engine's source rather than hex. */
 static const char *name_of(GLenum v)
 {
-    static char buf[32];
+    static __thread char buf[40];
     switch (v) {
     case 0x1908: return "GL_RGBA";
     case 0x1907: return "GL_RGB";
@@ -74,81 +90,155 @@ static const char *name_of(GLenum v)
     case 0x813C: return "GL_TEXTURE_MAX_LEVEL";
     case 0x813D: return "GL_TEXTURE_MAX_LOD";
     case 0x8134: return "GL_TEXTURE_MIN_LOD";
-    case 0x2312: return "GL_COMPRESSED_TEXTURE_FORMATS";
+    case 0x84FE: return "GL_TEXTURE_MAX_ANISOTROPY_EXT";
+    case 0x8B9D: return "GL_TEXTURE_SWIZZLE_RGBA";
+    case 0x8A48: return "GL_TEXTURE_SRGB_DECODE_EXT";
+    case 0x0DE1: return "GL_TEXTURE_2D";
+    case 0x806F: return "GL_TEXTURE_3D";
+    case 0x8513: return "GL_TEXTURE_CUBE_MAP";
+    case 0x8C1A: return "GL_TEXTURE_2D_ARRAY";
     default: break;
     }
     snprintf(buf, sizeof(buf), "%#x", v);
     return buf;
 }
 
-static void note(const char *fn, const char *a, const char *b, const char *c, long n1, long n2)
+/* ------------------------------------------------- the state, at the moment it fails */
+
+static void dump_state(const char *fn)
 {
-    need_error();
+    if (!x_glGetIntegerv) x_glGetIntegerv = (GLint (*)(GLenum, GLint *))tl_egl_resolve("glGetIntegerv");
+    if (!x_glGetIntegerv) return;
+    GLint tex2d = -1, tex3d = -1, cube = -1, active = -1, prog = -1;
+    x_glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex2d);
+    x_glGetIntegerv(GL_TEXTURE_BINDING_3D, &tex3d);
+    x_glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &cube);
+    x_glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+    x_glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+    tl_log_line("gl:   after %s: binding2D=%d binding3D=%d bindingCube=%d activeUnit=%#x program=%d swap=%lu",
+                fn, tex2d, tex3d, cube, (unsigned)active, prog, g_swap);
+    static char ring[2048];
+    tl_egl_recent_calls(ring, sizeof(ring), 24);
+    tl_log_line("gl:   the calls before it: %.900s", ring);
+}
+
+static void note(const char *fn, const char *args, long w, long h)
+{
+    if (!x_glGetError) x_glGetError = (GLenum (*)(void))tl_egl_resolve("glGetError");
     if (!x_glGetError) return;
     GLenum e = x_glGetError();
     if (!e) return;
-    if (g_reported++ > 60) return;
-    tl_log_line("gl: %s(%s%s%s%s%s) -> error %#x%s", fn, a ? a : "",
-                b ? ", " : "", b ? b : "", c ? ", " : "", c ? c : "", e,
-                e == GL_INVALID_ENUM ? " (GL_INVALID_ENUM)" : "");
-    if (n1 || n2) tl_log_line("gl:   size %ldx%ld", n1, n2);
+    if (g_reported++ > 40) return;
+    tl_log_line("gl: %s(%s) -> error %#x%s%s", fn, args ? args : "", e, (w || h) ? "" : "",
+                e == GL_INVALID_ENUM ? " (GL_INVALID_ENUM)" : e == 0x0501 ? " (GL_INVALID_VALUE)" : e == 0x0502 ? " (GL_INVALID_OPERATION)" : "");
+    if (w || h) tl_log_line("gl:   size %ldx%ld", w, h);
+    dump_state(fn);
 }
 
 /* ------------------------------------------------------------- the wrappers */
+
+static GLuint g_last_created, g_bind2d_for_last;
+
+static void (*r_BindTexture)(GLenum, GLuint);
+static void w_BindTexture(GLenum target, GLuint id)
+{
+    r_BindTexture(target, id);
+    if (target == 0x0DE1) g_bind2d_for_last = id;
+}
+
+static void (*r_DeleteTextures)(GLsizei, const GLuint *);
+static void w_DeleteTextures(GLsizei n, const GLuint *ids)
+{
+    if (ids && n > 0) tl_log_line("gl: glDeleteTextures(%d) first=%u swap=%lu", n, ids[0], g_swap);
+    r_DeleteTextures(n, ids);
+}
+
+static void (*r_GenTextures)(GLsizei, GLuint *);
+static void w_GenTextures(GLsizei n, GLuint *ids)
+{
+    r_GenTextures(n, ids);
+    if (n > 0 && ids) g_last_created = ids[0];
+}
 
 static void (*r_TexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void *);
 static void w_TexImage2D(GLenum t, GLint level, GLint ifmt, GLsizei w, GLsizei h, GLint border, GLenum fmt, GLenum type, const void *px)
 {
     r_TexImage2D(t, level, ifmt, w, h, border, fmt, type, px);
-    char a[96], b[96];
-    snprintf(a, sizeof(a), "internal=%s", name_of((GLenum)ifmt));
-    snprintf(b, sizeof(b), "format=%s type=%s", name_of(fmt), name_of(type));
-    note("glTexImage2D", a, b, NULL, w, h);
+    char a[160];
+    snprintf(a, sizeof(a), "target=%s internal=%s format=%s type=%s level=%d", name_of(t), name_of((GLenum)ifmt), name_of(fmt), name_of(type), level);
+    note("glTexImage2D", a, w, h);
 }
 
 static void (*r_CompressedTexImage2D)(GLenum, GLint, GLenum, GLsizei, GLsizei, GLint, GLsizei, const void *);
 static void w_CompressedTexImage2D(GLenum t, GLint level, GLenum ifmt, GLsizei w, GLsizei h, GLint border, GLsizei size, const void *px)
 {
     r_CompressedTexImage2D(t, level, ifmt, w, h, border, size, px);
-    char a[96], b[64];
-    snprintf(a, sizeof(a), "internal=%s", name_of(ifmt));
-    snprintf(b, sizeof(b), "bytes=%d", size);
-    note("glCompressedTexImage2D", a, b, NULL, w, h);
+    char a[160];
+    snprintf(a, sizeof(a), "target=%s internal=%s level=%d bytes=%d", name_of(t), name_of(ifmt), level, size);
+    note("glCompressedTexImage2D", a, w, h);
 }
 
 static void (*r_TexStorage2D)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
 static void w_TexStorage2D(GLenum t, GLsizei levels, GLenum ifmt, GLsizei w, GLsizei h)
 {
     r_TexStorage2D(t, levels, ifmt, w, h);
-    char a[96], b[32];
-    snprintf(a, sizeof(a), "internal=%s", name_of(ifmt));
-    snprintf(b, sizeof(b), "levels=%d", levels);
-    note("glTexStorage2D", a, b, NULL, w, h);
-}
-
-static void (*r_TexParameteri)(GLenum, GLenum, GLint);
-static void w_TexParameteri(GLenum t, GLenum pname, GLint v)
-{
-    r_TexParameteri(t, pname, v);
-    char a[96], b[96];
-    snprintf(a, sizeof(a), "pname=%s", name_of(pname));
-    snprintf(b, sizeof(b), "value=%s", name_of((GLenum)v));
-    note("glTexParameteri", a, b, NULL, 0, 0);
+    char a[160];
+    snprintf(a, sizeof(a), "target=%s internal=%s levels=%d", name_of(t), name_of(ifmt), levels);
+    note("glTexStorage2D", a, w, h);
 }
 
 static void (*r_TexStorage3D)(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLsizei);
 static void w_TexStorage3D(GLenum t, GLsizei levels, GLenum ifmt, GLsizei w, GLsizei h, GLsizei d)
 {
     r_TexStorage3D(t, levels, ifmt, w, h, d);
-    char a[96];
-    snprintf(a, sizeof(a), "internal=%s", name_of(ifmt));
-    note("glTexStorage3D", a, NULL, NULL, w, h);
+    char a[160];
+    snprintf(a, sizeof(a), "target=%s internal=%s levels=%d depth=%d", name_of(t), name_of(ifmt), levels, d);
+    note("glTexStorage3D", a, w, h);
 }
 
-/* ----------------------------------------------------------- what gets hooked */
+static void (*r_TexParameteri)(GLenum, GLenum, GLint);
+static void w_TexParameteri(GLenum t, GLenum pname, GLint v)
+{
+    r_TexParameteri(t, pname, v);
+    char a[192];
+    snprintf(a, sizeof(a), "target=%s pname=%s value=%s lastgen=%u bound2D=%u", name_of(t), name_of(pname),
+             (pname == 0x2801 || pname == 0x2800 || pname == 0x2802 || pname == 0x2803 || (GLenum)v > 0x10000) ? name_of((GLenum)v) : "",
+             g_last_created, g_bind2d_for_last);
+    note("glTexParameteri", a, 0, 0);
+}
 
-/* Called from tl_egl_resolve, on the GL thread, for every entry point the guest asks for: the name decides whether it wants a
- * wrapper, and the real pointer is remembered so the wrapper can call through. */
+static void (*r_TexParameterf)(GLenum, GLenum, float);
+static void w_TexParameterf(GLenum t, GLenum pname, float v)
+{
+    r_TexParameterf(t, pname, v);
+    char a[192];
+    snprintf(a, sizeof(a), "target=%s pname=%s value=%g lastgen=%u bound2D=%u", name_of(t), name_of(pname), (double)v, g_last_created, g_bind2d_for_last);
+    note("glTexParameterf", a, 0, 0);
+}
+
+static void (*r_GenerateMipmap)(GLenum);
+static void w_GenerateMipmap(GLenum t)
+{
+    r_GenerateMipmap(t);
+    char a[96];
+    snprintf(a, sizeof(a), "target=%s bound2D=%u", name_of(t), g_bind2d_for_last);
+    note("glGenerateMipmap", a, 0, 0);
+}
+
+/* ------------------------------------------------------------- where it hooks in */
+
+bool husk_gl_diag_wants(const char *name)
+{
+    static const char *const k[] = {
+        "glTexImage2D", "glCompressedTexImage2D", "glTexStorage2D", "glTexStorage3D",
+        "glTexParameteri", "glTexParameterf", "glGenerateMipmap", "glDeleteTextures", "glGenTextures", "glBindTexture", NULL
+    };
+    for (int i = 0; k[i]; i++) if (!strcmp(name, k[i])) return true;
+    return false;
+}
+
+/* Called from tl_egl_resolve for every entry point the guest asks for: the name decides whether it wants a wrapper, and the
+ * real pointer is remembered so the wrapper can call through it. */
 void *husk_gl_diag_install(const char *name, void *real)
 {
     if (!strcmp(name, "glTexImage2D")) { r_TexImage2D = real; return (void *)w_TexImage2D; }
@@ -156,18 +246,13 @@ void *husk_gl_diag_install(const char *name, void *real)
     if (!strcmp(name, "glTexStorage2D")) { r_TexStorage2D = real; return (void *)w_TexStorage2D; }
     if (!strcmp(name, "glTexStorage3D")) { r_TexStorage3D = real; return (void *)w_TexStorage3D; }
     if (!strcmp(name, "glTexParameteri")) { r_TexParameteri = real; return (void *)w_TexParameteri; }
+    if (!strcmp(name, "glTexParameterf")) { r_TexParameterf = real; return (void *)w_TexParameterf; }
+    if (!strcmp(name, "glGenerateMipmap")) { r_GenerateMipmap = real; return (void *)w_GenerateMipmap; }
+    if (!strcmp(name, "glDeleteTextures")) { r_DeleteTextures = real; return (void *)w_DeleteTextures; }
+    if (!strcmp(name, "glGenTextures")) { r_GenTextures = real; return (void *)w_GenTextures; }
+    if (!strcmp(name, "glBindTexture")) { r_BindTexture = real; return (void *)w_BindTexture; }
     return real;
 }
 
-bool husk_gl_diag_wants(const char *name)
-{
-    return !strcmp(name, "glTexImage2D") || !strcmp(name, "glCompressedTexImage2D") || !strcmp(name, "glTexStorage2D")
-        || !strcmp(name, "glTexStorage3D") || !strcmp(name, "glTexParameteri");
-}
-
-/* glGetError comes in through the same resolver as the wrapped calls, so the first wrapper installs it. */
-static void need_error(void)
-{
-    extern void *tl_egl_resolve(const char *);
-    if (!x_glGetError) x_glGetError = (GLenum (*)(void))tl_egl_resolve("glGetError");
-}
+/* The swap counter the log quotes: set from the frame loop, so an error can be placed in the run. */
+void husk_gl_diag_swap(unsigned long n) { g_swap = n; }
