@@ -122,9 +122,6 @@ def main() -> int:
     edit(tl / "husk-tl-egl.c",
          '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
          '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
-         'extern void husk_gldiag_image(unsigned, unsigned, unsigned, int, int, unsigned);\n'
-         'extern void husk_gldiag_subimage(unsigned, unsigned, int, int, unsigned);\n'
-         'extern void husk_gldiag_compressed(unsigned, int, int, int, unsigned);\n'
          'extern void husk_gldiag_upload_set_real(void *, void *);\n'
          'extern void husk_gldiag_upload_tick(unsigned long);\n'
          'static void (*r_glTexSubImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);\n'
@@ -141,11 +138,35 @@ def main() -> int:
          '    husk_gldiag_subimage(f, ty, w, h, ci_upload_error());\n'
          '}\n')
 
+
+    # ci/diag: glTexImage2D and the compressed form were wrapped in an earlier round and lost in a rebase; restore them, and
+    # report each upload to the module that counts formats and catches a refusal.
+    edit(tl / "husk-tl-egl.c",
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
+         'extern void husk_gldiag_image(unsigned, unsigned, unsigned, int, int, unsigned);\n'
+         'extern void husk_gldiag_subimage(unsigned, unsigned, int, int, unsigned);\n'
+         'extern void husk_gldiag_compressed(unsigned, int, int, int, unsigned);\n'
+         'static void (*r_glTexImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);\n'
+         'static void (*r_glCompressedTexImage2D)(unsigned, int, unsigned, int, int, int, int, const void *);\n'
+         'static unsigned ci_upload_error(void);\n'
+         'static void w_glTexImage2D(unsigned t, int lv, int ifmt, int w, int h, int b, unsigned fmt, unsigned ty, const void *px)\n'
+         '{\n'
+         '    r_glTexImage2D(t, lv, ifmt, w, h, b, fmt, ty, px);\n'
+         '    unsigned e = ci_upload_error();\n'
+         '    husk_gldiag_image((unsigned)ifmt, fmt, ty, w, h, e);\n'
+         '}\n'
+         'static void w_glCompressedTexImage2D(unsigned t, int lv, unsigned ifmt, int w, int h, int b, int sz, const void *px)\n'
+         '{\n'
+         '    r_glCompressedTexImage2D(t, lv, ifmt, w, h, b, sz, px);\n'
+         '    husk_gldiag_compressed(ifmt, w, h, sz, ci_upload_error());\n'
+         '}\n')
+
     edit(tl / "husk-tl-egl.c",
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n',
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n'
          '    ADAPT(glScissor), ADAPT(glBlendFunc), ADAPT(glEnable), ADAPT(glDisable), ADAPT(glFrontFace), ADAPT(glBindFramebuffer),\n'
-         '    ADAPT(glDrawElements), ADAPT(glDrawArrays), ADAPT(glTexSubImage2D),\n')
+         '    ADAPT(glDrawElements), ADAPT(glDrawArrays), ADAPT(glTexSubImage2D), ADAPT(glTexImage2D), ADAPT(glCompressedTexImage2D),\n')
 
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(k_godot);\n',
