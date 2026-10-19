@@ -67,32 +67,39 @@ def main() -> int:
          '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
          '/* ci/diag: scissor, blending, colour mask and the draw count -- none of these errors, so nothing reports them */\n'
          'extern void husk_gldiag_scissor(int, int, int, int);\n'
-         'extern void husk_gldiag_blend_enabled(int);\n'
-         'extern void husk_gldiag_blend_mode(unsigned, unsigned);\n'
+         'extern void husk_gldiag_enable(unsigned, int);\n'
+         'extern void husk_gldiag_blendfunc(unsigned, unsigned);\n'
+         'extern void husk_gldiag_depthmask(int);\n'
+         'extern void husk_gldiag_colormask(int, int, int, int);\n'
+         'extern void husk_gldiag_frontface(unsigned);\n'
          'extern void husk_gldiag_draw(void);\n'
+         'extern void husk_gldiag_tick(void);\n'
          'static void (*r_glScissor)(int, int, int, int);\n'
          'static void (*r_glBlendFunc)(unsigned, unsigned);\n'
          'static void (*r_glEnable)(unsigned);\n'
          'static void (*r_glDisable)(unsigned);\n'
          'static void w_glScissor(int x, int y, int w, int h) { r_glScissor(x, y, w, h); husk_gldiag_scissor(x, y, w, h); }\n'
-         'static void w_glBlendFunc(unsigned s, unsigned d) { r_glBlendFunc(s, d); husk_gldiag_blend_mode(s, d); }\n'
+         'static void w_glBlendFunc(unsigned s, unsigned d) { r_glBlendFunc(s, d); husk_gldiag_blendfunc(s, d); }\n'
          
-         'static void w_glEnable(unsigned c) { r_glEnable(c); if (c == 0x0BE2) husk_gldiag_blend_enabled(1); }\n'
-         'static void w_glDisable(unsigned c) { r_glDisable(c); if (c == 0x0BE2) husk_gldiag_blend_enabled(0); }\n'
+         'static void w_glEnable(unsigned c) { r_glEnable(c); husk_gldiag_enable(c, 1); }\n'
+         'static void w_glDisable(unsigned c) { r_glDisable(c); husk_gldiag_enable(c, 0); }\n'
          'static void (*r_glDrawElements)(unsigned, int, unsigned, const void *);\n'
          'static void (*r_glDrawArrays)(unsigned, int, int);\n'
          'static void w_glDrawElements(unsigned m, int c, unsigned t, const void *i) { husk_gldiag_draw(); r_glDrawElements(m, c, t, i); }\n'
-         'static void w_glDrawArrays(unsigned m, int f, int c) { husk_gldiag_draw(); r_glDrawArrays(m, f, c); }\n')
+         'static void w_glDrawArrays(unsigned m, int f, int c) { husk_gldiag_draw(); r_glDrawArrays(m, f, c); }\n'
+         'static void (*r_glFrontFace)(unsigned);\n'
+         'static void w_glFrontFace(unsigned m) { r_glFrontFace(m); husk_gldiag_frontface(m); }\n')
 
     edit(tl / "husk-tl-egl.c",
          '    if (n <= 3 || n % 600 == 0) {\n',
          '    { extern void husk_gldiag_frame(unsigned long); husk_gldiag_frame(n); }\n'
+         '    { extern void husk_gldiag_tick(void); husk_gldiag_tick(); }\n'
          '    if (n <= 3 || n % 600 == 0) {\n')
 
     edit(tl / "husk-tl-egl.c",
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n',
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n'
-         '    ADAPT(glScissor), ADAPT(glBlendFunc), ADAPT(glEnable), ADAPT(glDisable),\n'
+         '    ADAPT(glScissor), ADAPT(glBlendFunc), ADAPT(glEnable), ADAPT(glDisable), ADAPT(glFrontFace),\n'
          '    ADAPT(glDrawElements), ADAPT(glDrawArrays),\n')
 
     edit(tl / "husk-tl-jni-godot.c",
