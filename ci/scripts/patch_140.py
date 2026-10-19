@@ -38,7 +38,7 @@ def main() -> int:
     dest.write_text(NEW_FILE.read_text())
     print(f"  {dest}: written")
 
-    for name in ("husk-gl-state.c", "husk-gl-fbo.c"):
+    for name in ("husk-gl-state.c", "husk-gl-fbo.c", "husk-gl-upload.c"):
         st = pathlib.Path(__file__).resolve().parent.parent / "diag" / name
         if st.exists():
             (tl / name).write_text(st.read_text())
@@ -96,6 +96,7 @@ def main() -> int:
          '    { extern void husk_gldiag_frame(unsigned long); husk_gldiag_frame(n); }\n'
          '    { extern void husk_gldiag_tick(void); husk_gldiag_tick(); }\n'
          '    { extern void husk_gldiag_fbo_frame(unsigned long); husk_gldiag_fbo_frame(n); }\n'
+         '    { extern void husk_gldiag_upload_tick(unsigned long); husk_gldiag_upload_tick(n); }\n'
          '    if (n <= 3 || n % 600 == 0) {\n')
 
 
@@ -115,11 +116,36 @@ def main() -> int:
 
          '}\n')
 
+
+    # ci/diag: the draws reach the screen and the state is right, so the question is whether the pixels ever reached the
+    # textures -- glTexSubImage2D and the compressed upload were never watched.
+    edit(tl / "husk-tl-egl.c",
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
+         'extern void husk_gldiag_image(unsigned, unsigned, unsigned, int, int, unsigned);\n'
+         'extern void husk_gldiag_subimage(unsigned, unsigned, int, int, unsigned);\n'
+         'extern void husk_gldiag_compressed(unsigned, int, int, int, unsigned);\n'
+         'extern void husk_gldiag_upload_set_real(void *, void *);\n'
+         'extern void husk_gldiag_upload_tick(unsigned long);\n'
+         'static void (*r_glTexSubImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);\n'
+         'static unsigned ci_upload_error(void)\n'
+         '{\n'
+         '    static unsigned (*g)(void);\n'
+         '    if (!g) g = (unsigned (*)(void))a_eglGetProcAddress("glGetError");\n'
+         '    return g ? g() : 0;\n'
+         '}\n'
+         'static void w_glTexSubImage2D(unsigned t, int l, int x, int y, int w, int h, unsigned f, unsigned ty, const void *px)\n'
+         '{\n'
+         '    r_glTexSubImage2D(t, l, x, y, w, h, f, ty, px);\n'
+         '    husk_gldiag_upload_set_real((void *)a_eglGetProcAddress("glGetError"), (void *)a_eglGetProcAddress("glGetIntegerv"));\n'
+         '    husk_gldiag_subimage(f, ty, w, h, ci_upload_error());\n'
+         '}\n')
+
     edit(tl / "husk-tl-egl.c",
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n',
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n'
          '    ADAPT(glScissor), ADAPT(glBlendFunc), ADAPT(glEnable), ADAPT(glDisable), ADAPT(glFrontFace), ADAPT(glBindFramebuffer),\n'
-         '    ADAPT(glDrawElements), ADAPT(glDrawArrays),\n')
+         '    ADAPT(glDrawElements), ADAPT(glDrawArrays), ADAPT(glTexSubImage2D),\n')
 
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(k_godot);\n',
