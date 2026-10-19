@@ -45,6 +45,11 @@ def main() -> int:
     (tl / hook.name).write_text(hook.read_text())
     print(f"  {tl / hook.name}: written (diagnostics)")
 
+    fix = pathlib.Path(__file__).resolve().parent.parent / "fix" / "husk-gl-filterfallback.c"
+    if fix.exists():
+        (tl / fix.name).write_text(fix.read_text())
+        print(f"  {tl / fix.name}: written (fix)")
+
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(bridge);\n',
          '    tl_jni_register_hle(bridge);\n'
@@ -90,7 +95,17 @@ def main() -> int:
          '}\n'
          'static void w_glGenTextures(int n, unsigned *ids) { r_glGenTextures(n, ids); husk_gldiag_gen(n); }\n'
          'static void w_glDeleteTextures(int n, const unsigned *ids) { r_glDeleteTextures(n, ids); husk_gldiag_del(n); }\n'
-         'static void w_glTexParameteri(unsigned t, unsigned p, int v) { r_glTexParameteri(t, p, v); husk_gldiag_texparam(t, p, v, diag_take_error()); }\n'
+         'extern bool husk_gl_filter_fallback(unsigned, unsigned, int, unsigned);\n'
+         'extern void husk_gl_filter_set_real(void *, void *);\n'
+         'static void w_glTexParameteri(unsigned t, unsigned p, int v)\n'
+         '{\n'
+         '    r_glTexParameteri(t, p, v);\n'
+         '    unsigned e = diag_take_error();\n'
+         '    husk_gldiag_texparam(t, p, v, e);\n'
+         '    /* a filter the driver refuses (a float texture without linear filtering) is set to NEAREST for that texture only */\n'
+         '    if (e) { husk_gl_filter_set_real((void *)r_glTexParameteri, (void *)a_eglGetProcAddress("glGetError"));\n'
+         '            husk_gl_filter_fallback(t, p, v, e); }\n'
+         '}\n'
          'static void w_glTexParameterf(unsigned t, unsigned p, float v) { r_glTexParameterf(t, p, v); husk_gldiag_texparam(t, p, (long)v, diag_take_error()); }\n'
                   'extern void husk_gldiag_fail(const char *, unsigned, unsigned, unsigned, unsigned, int, int, unsigned);\n''static void (*r_glTexImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);\n'
          'static void (*r_glCompressedTexImage2D)(unsigned, int, unsigned, int, int, int, int, const void *);\n'
