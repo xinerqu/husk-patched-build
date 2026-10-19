@@ -50,6 +50,23 @@ static void mkparents(const char *path)
     mkdir(p, 0755);
 }
 
+/*
+ * A call the engine makes shows once per run, with the path it asked about: enough to tell "never asked these tables" from "asked
+ * and got an answer it could not use", which one log of #140 could not.
+ */
+static pthread_mutex_t trace_lock = PTHREAD_MUTEX_INITIALIZER;
+static const char *trace_seen[8];
+static void trace_point(const char *what, const char *detail)
+{
+    pthread_mutex_lock(&trace_lock);
+    for (int i = 0; i < 8 && trace_seen[i]; i++) if (!strcmp(trace_seen[i], what)) { pthread_mutex_unlock(&trace_lock); return; }
+    for (int i = 0; i < 8; i++) if (!trace_seen[i]) { trace_seen[i] = what; break; }
+    pthread_mutex_unlock(&trace_lock);
+    if (detail) tl_log_line("godot: HUSK140 %s: %s", what, detail);
+    else tl_log_line("godot: HUSK140 %s", what);
+}
+#define trace_call(what, path) do { if (getenv("TL_GODOT_TRACE_CALLS") == NULL) trace_point(what, path); } while (0)
+
 /* ------------------------------------------------------------ folders */
 
 /*
@@ -115,9 +132,10 @@ static int dir_open_impl(tl_jcall *c)
 }
 
 /* The Kotlin handler's listing calls, which name only the id. */
-static void kotlin_dirOpen(tl_jcall *c) { c->ret.j = 0; c->ret.i = dir_open_impl(c); }
+static void kotlin_dirOpen(tl_jcall *c) { c->ret.j = 0; trace_call("dirOpen", S(c->args[1].l)); c->ret.i = dir_open_impl(c); }
 static void kotlin_dirNext(tl_jcall *c)
 {
+    trace_call("dirNext", NULL);
     pthread_mutex_lock(&g_dir_lock);
     dirlink *d = dir_find(c->args[0].i);
     listing *l = d ? d->list : NULL;
@@ -164,6 +182,7 @@ static void dirExists_create(tl_jcall *c)
     struct stat st;
     char host[1100];
     const char *path = S(c->args[1].l);
+    trace_call("dirExists", path);
     host_path(path, host, sizeof(host));
     if (stat(host, &st) == 0) { c->ret = vzin(S_ISDIR(st.st_mode)); return; }
     if (path[0] != '/') { c->ret = vzin(0); return; }
@@ -175,6 +194,7 @@ static void makeDir_create(tl_jcall *c)
 {
     struct stat st;
     char host[1100];
+    trace_call("makeDir", S(c->args[1].l));
     host_path(S(c->args[1].l), host, sizeof(host));
     if (stat(host, &st) == 0) { c->ret = vzin(S_ISDIR(st.st_mode)); return; }
     mkparents(host);
@@ -192,6 +212,7 @@ static void remove_path(tl_jcall *c)
 static void rename_path(tl_jcall *c)
 {
     char a[1100], b[1100];
+    trace_call("rename", S(c->args[2].l));
     host_path(S(c->args[1].l), a, sizeof(a));
     host_path(S(c->args[2].l), b, sizeof(b));
     if (rename(a, b) == 0) { c->ret = vzin(1); return; }
@@ -237,6 +258,7 @@ static int flags_of(int mode)
 
 static void kotlin_fileOpen(tl_jcall *c)
 {
+    trace_call("fileOpen", S(c->args[0].l));
     char host[1100];
     host_path(S(c->args[0].l), host, sizeof(host));
     int flags = flags_of(c->args[1].i);
@@ -272,7 +294,7 @@ static int write_buffer(int id, jobj *buf)
     while (put < n) { ssize_t w = write(fd, p + put, (size_t)(n - put)); if (w <= 0) return 0; put += w; }
     return 1;
 }
-static void kotlin_fileWrite(tl_jcall *c) { c->ret = vzin(write_buffer(c->args[0].i, c->args[1].l)); }
+static void kotlin_fileWrite(tl_jcall *c) { trace_call("fileWrite", NULL); c->ret = vzin(write_buffer(c->args[0].i, c->args[1].l)); }
 /* The Java form answers nothing; a caller that does not read the return gets this one. */
 static void void_fileWrite(tl_jcall *c) { int id = c->args[0].i; write_buffer(id, c->args[1].l); c->ret.j = 0; }
 /* Kotlin's throws where the operation fails (FileData.resize's FileChannel), for the engine to log and carry on; the Java form
@@ -322,6 +344,7 @@ static void unit_fileClose(tl_jcall *c)
 
 /* ------------------------------------------------------- what it installs */
 
+
 /*
  * Each call arrives with its arguments in its own signature's order, so the access type the Kotlin forms dropped is simply not
  * there. dirExists, makeDir, remove, rename and fileExists kept theirs; fileLastModified answers in seconds there.
@@ -356,4 +379,5 @@ void tl_godot_kotlin_install(void)
     /* One line per run, so a log says whether these answers were registered at all (#140 went one build without it). */
     tl_log_line("godot: %zu Kotlin directory/file signatures registered (dirNext(I), fileOpen(String,int), fileWrite->Z, ...)",
                 sizeof(k) / sizeof(k[0]) - 1);
+    trace_point("registered", NULL);   /* "godot: HUSK140 registered" -- the line before the engine's first lookup */
 }

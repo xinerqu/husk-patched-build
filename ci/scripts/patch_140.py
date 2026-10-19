@@ -15,6 +15,10 @@ Run: python3 ci/scripts/patch_140.py <husk-checkout>
 import pathlib
 import sys
 
+SWIFT_OLD = '        // The CA certificates and system fonts Android keeps under /system, as the app carries them.\n        if let sys = Bundle.main.resourcePath.map({ $0 + "/android-system" }), FileManager.default.fileExists(atPath: sys) {\n            husk_native_set_system_files(sys + "/cacerts", sys)\n        }'
+
+SWIFT_NEW = '        // The CA certificates and system fonts Android keeps under /system, as the app carries them. Read from the bundle when the\n        // bundle is readable; under a host that relocates the app (LiveContainer reports a resourcePath whose directory a sandboxed\n        // process cannot open) a copy in Documents is used instead, made once from the bundle.\n        if let bundle = Bundle.main.resourcePath.map({ $0 + "/android-system" }), FileManager.default.fileExists(atPath: bundle + "/etc/fonts.xml") {\n            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("android-system")\n            let sys: URL\n            if FileManager.default.isReadableFile(atPath: bundle + "/etc/fonts.xml") {\n                sys = URL(fileURLWithPath: bundle)\n            } else {\n                if !FileManager.default.fileExists(atPath: docs.appendingPathComponent("etc/fonts.xml").path) {\n                    try? FileManager.default.removeItem(at: docs)\n                    try? FileManager.default.copyItem(at: URL(fileURLWithPath: bundle), to: docs)\n                }\n                sys = docs\n            }\n            husk_native_set_system_files(sys.appendingPathComponent("cacerts").path, sys.path)\n        }'
+
 NEW_FILE = pathlib.Path(__file__).resolve().parent.parent / "patches" / "140" / "husk-tl-jni-godot-kotlin.c"
 
 
@@ -78,6 +82,8 @@ def main() -> int:
          'code points (#140). */\n'
          '    if (fonts_root) setenv("ANDROID_ROOT", fonts_root, 1);\n'
          '}\n')
+    edit(root / "src" / "app" / "Husk" / "TLUnityView.swift", SWIFT_OLD, SWIFT_NEW)
+
     return 0
 
 

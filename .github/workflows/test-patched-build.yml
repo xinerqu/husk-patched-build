@@ -175,7 +175,7 @@ jobs:
       - name: Publish the IPA
         run: bash ci/ci/scripts/release_assets.sh "$GITHUB_WORKSPACE/husk-src/build/Husk.ipa"
 
-      - name: IPA as a workflow artifact
+      - name: IPA as a workflow artifact (sideload build only)
         if: always() && !cancelled()
         uses: actions/upload-artifact@v4
         with:
