@@ -40,11 +40,12 @@ def main() -> int:
 
     # The test build's rendering diagnostics (not part of the fix): makes the renderer say which texture formats it has and any
     # GL error it raises, so a log can explain "assets load but do not draw".
-    for name in ("husk-gl-diag.c", "husk-gl-texdiag.c", "husk-gl-probe.c"):
-        diag = pathlib.Path(__file__).resolve().parent.parent / "diag" / name
-        if diag.exists():
-            (tl / name).write_text(diag.read_text())
-            print(f"  {tl / name}: written (diagnostic build)")
+    for part, name in (("diag", "husk-gl-diag.c"), ("diag", "husk-gl-texdiag.c"), ("diag", "husk-gl-probe.c"),
+                       ("fix", "husk-gl-angle-retry.c")):
+        src = pathlib.Path(__file__).resolve().parent.parent / part / name
+        if src.exists():
+            (tl / name).write_text(src.read_text())
+            print(f"  {tl / name}: written ({part})")
 
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(bridge);\n',

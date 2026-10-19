@@ -124,6 +124,8 @@ static void dump_state(const char *fn)
 }
 
 void husk_gl_probe(const char *fn, unsigned bound2d, unsigned err);
+bool husk_gl_param_retry(unsigned target, unsigned pname, int ival, float fval, bool is_float);
+bool husk_gl_generate_mipmap_retry(unsigned target);
 void husk_gl_hist_gen(unsigned n, const unsigned *ids);
 void husk_gl_hist_bind(unsigned target, unsigned id);
 void husk_gl_hist_upload(unsigned target, int level, int border);
@@ -208,6 +210,9 @@ static void (*r_TexParameteri)(GLenum, GLenum, GLint);
 static void w_TexParameteri(GLenum t, GLenum pname, GLint v)
 {
     r_TexParameteri(t, pname, v);
+    /* ANGLE can refuse a legal call on a valid, bound texture (probe: isTexture=1, leftover=0). Rebind and retry before anyone
+     * sees it: for a driver that was right this changes nothing, for ANGLE it repairs the object. */
+    if (husk_gl_param_retry(t, pname, v, 0.0f, false)) return;
     char a[192];
     snprintf(a, sizeof(a), "target=%s pname=%s value=%s lastgen=%u bound2D=%u", name_of(t), name_of(pname),
              (pname == 0x2801 || pname == 0x2800 || pname == 0x2802 || pname == 0x2803 || (GLenum)v > 0x10000) ? name_of((GLenum)v) : "",
@@ -219,6 +224,7 @@ static void (*r_TexParameterf)(GLenum, GLenum, float);
 static void w_TexParameterf(GLenum t, GLenum pname, float v)
 {
     r_TexParameterf(t, pname, v);
+    if (husk_gl_param_retry(t, pname, 0, v, true)) return;
     char a[192];
     snprintf(a, sizeof(a), "target=%s pname=%s value=%g lastgen=%u bound2D=%u", name_of(t), name_of(pname), (double)v, g_last_created, g_bind2d_for_last);
     note("glTexParameterf", a, 0, 0);
@@ -228,6 +234,7 @@ static void (*r_GenerateMipmap)(GLenum);
 static void w_GenerateMipmap(GLenum t)
 {
     r_GenerateMipmap(t);
+    if (husk_gl_generate_mipmap_retry(t)) return;
     char a[96];
     snprintf(a, sizeof(a), "target=%s bound2D=%u", name_of(t), g_bind2d_for_last);
     note("glGenerateMipmap", a, 0, 0);
