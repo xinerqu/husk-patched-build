@@ -38,6 +38,13 @@ def main() -> int:
     dest.write_text(NEW_FILE.read_text())
     print(f"  {dest}: written")
 
+    # The test build's rendering diagnostics (not part of the fix): makes the renderer say which texture formats it has and any
+    # GL error it raises, so a log can explain "assets load but do not draw".
+    diag = pathlib.Path(__file__).resolve().parent.parent / "diag" / "husk-gl-diag.c"
+    if diag.exists():
+        (tl / diag.name).write_text(diag.read_text())
+        print(f"  {tl / diag.name}: written (diagnostic build)")
+
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(bridge);\n',
          '    tl_jni_register_hle(bridge);\n'
@@ -54,6 +61,17 @@ def main() -> int:
          '    M("org/godotengine/godot/GodotRenderView", "getInputHandler", "()Lorg/godotengine/godot/input/GodotInputHandler;", RV_inputHandler),\n'
          '    M("org/godotengine/godot/GodotRenderView", "requestPointerCapture", "()V", Noop),\n'
          '    M("org/godotengine/godot/GodotRenderView", "releasePointerCapture", "()V", Noop),\n')
+
+    # A test build only (ci/diag): the renderer cannot say why an asset does not draw, and this makes it say.
+    edit(tl / "husk-tl-godot.c",
+         '    if (swapInterval) swapInterval(dpy, 1);\n',
+         '    if (swapInterval) swapInterval(dpy, 1);\n'
+         '    extern void husk_gl_diagnostics_install(void);\n'
+         '    husk_gl_diagnostics_install();   /* ci/diag: prints the GPU\'s texture formats and turns on GL error output */\n')
+    edit(tl / "husk-tl-godot.c",
+         '        if (step(env, cls)) swapBuffers(dpy, surf);\n',
+         '        if (step(env, cls)) swapBuffers(dpy, surf);\n'
+         '        { extern void husk_gl_diagnostics_check(const char *); husk_gl_diagnostics_check("a frame"); }\n')
 
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(k_godot);\n',
