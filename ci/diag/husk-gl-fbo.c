@@ -47,7 +47,7 @@ void husk_gldiag_fbo_set_real(void *check, void *getiv)
     R_GetIntegerv = (void (*)(GLenum, GLint *))getiv;
 }
 
-void husk_gldiag_frame(unsigned long swap) { g_frames = (long)swap; }
+
 
 /* Called after glBindFramebuffer. */
 void husk_gldiag_fbo(unsigned target, unsigned id, int draws_since)
@@ -79,11 +79,12 @@ void husk_gldiag_fbo(unsigned target, unsigned id, int draws_since)
 }
 
 /* Once per ~100 frames: where are the draws going? */
-void husk_gldiag_tick(int draws_last_frame)
+void husk_gldiag_fbo_frame(unsigned long swap)
 {
+    g_frames = (long)swap;
     static long last;
     if (g_frames - last < 100) return;
     last = g_frames;
-    tl_log_line("gl: FBO SNAPSHOT @swap %ld draws=%d fb=%d binds=%ld offscreen_binds=%ld",
-                g_frames, draws_last_frame, g_fbo_now, g_binds, g_off_screen);
+    tl_log_line("gl: FBO SNAPSHOT @swap %ld fb=%d binds=%ld offscreen_binds=%ld",
+                g_frames, g_fbo_now, g_binds, g_off_screen);
 }

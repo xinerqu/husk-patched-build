@@ -95,6 +95,7 @@ def main() -> int:
          '    if (n <= 3 || n % 600 == 0) {\n',
          '    { extern void husk_gldiag_frame(unsigned long); husk_gldiag_frame(n); }\n'
          '    { extern void husk_gldiag_tick(void); husk_gldiag_tick(); }\n'
+         '    { extern void husk_gldiag_fbo_frame(unsigned long); husk_gldiag_fbo_frame(n); }\n'
          '    if (n <= 3 || n % 600 == 0) {\n')
 
 
@@ -111,6 +112,7 @@ def main() -> int:
          '    r_glBindFramebuffer(t, id);\n'
          '    husk_gldiag_fbo_set_real((void *)a_eglGetProcAddress("glCheckFramebufferStatus"), (void *)a_eglGetProcAddress("glGetIntegerv"));\n'
          '    husk_gldiag_fbo(t, id, 0);\n'
+
          '}\n')
 
     edit(tl / "husk-tl-egl.c",
