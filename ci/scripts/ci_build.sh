@@ -121,6 +121,11 @@ if [ ! -f build/ios-arm64/lib/libqemu-aarch64-softmmu.dylib ]; then
     die "the dependencies are not built yet (run ci_build.sh deps first)"
 fi
 stage   "app + IPA"         ./scripts/package_ipa.sh "$OUT"
-stage   "TrollStore .tipa" ./scripts/package_ipa.sh --trollstore "${OUT%.ipa}.tipa"
-ls -lh "$OUT" "${OUT%.ipa}.tipa"
+# The TrollStore .tipa is a second codesign pass; IPA_ONLY=1 skips it for a faster test build.
+if [ "${IPA_ONLY:-0}" = "1" ]; then
+    ls -lh "$OUT"
+else
+    stage   "TrollStore .tipa" ./scripts/package_ipa.sh --trollstore "${OUT%.ipa}.tipa"
+    ls -lh "$OUT" "${OUT%.ipa}.tipa"
+fi
 fi
