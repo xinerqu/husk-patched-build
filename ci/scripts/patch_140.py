@@ -41,7 +41,7 @@ def main() -> int:
     # The test build's rendering diagnostics (not part of the fix): makes the renderer say which texture formats it has and any
     # GL error it raises, so a log can explain "assets load but do not draw".
     for part, name in (("diag", "husk-gl-diag.c"), ("diag", "husk-gl-texdiag.c"), ("diag", "husk-gl-probe.c"),
-                       ("fix", "husk-gl-angle-retry.c")):
+                       ("fix", "husk-gl-namepool.c")):
         src = pathlib.Path(__file__).resolve().parent.parent / part / name
         if src.exists():
             (tl / name).write_text(src.read_text())
@@ -90,9 +90,15 @@ def main() -> int:
          '    { extern void husk_gl_diag_swap(unsigned long); husk_gl_diag_swap(n); }   /* ci/diag: the frame an error is quoted against */\n'
          '    { extern void husk_gl_frame_end(unsigned long); husk_gl_frame_end(n); }\n')
 
+    # The name pool sits closest to ANGLE (it must receive the real entry points), the diagnostics wrap it and so see the
+    # guest's own texture names.
     edit(tl / "husk-tl-egl.c",
          '    if (!real) return NULL;\n',
          '    if (!real) return NULL;\n'
+         '    /* ci: give ANGLE a name pool it never has to recycle -- GL allows a game to reuse a deleted name, and ANGLE mixes the\n'
+         '     * two up once it has (report after #140: GL_INVALID_ENUM on a valid, bound texture). */\n'
+         '    { extern void *husk_gl_names_install(const char *, void *); void *named = husk_gl_names_install(name, real);\n'
+         '      if (named != real) return named; }\n'
          '    { extern void *husk_gl_diag_install(const char *, void *); void *wrapped = husk_gl_diag_install(name, real);\n'
          '      if (wrapped != real) return wrapped; }\n')
 
