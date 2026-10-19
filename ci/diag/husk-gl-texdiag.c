@@ -36,6 +36,7 @@ static GLint (*x_glGetIntegerv)(GLenum, GLint *);
 
 static int g_reported;
 static unsigned long g_swap;
+static GLuint g_last_created, g_bind2d_for_last;
 
 #define GL_INVALID_ENUM 0x0500
 #define GL_TEXTURE_BINDING_2D 0x8069
@@ -122,6 +123,12 @@ static void dump_state(const char *fn)
     tl_log_line("gl:   the calls before it: %.900s", ring);
 }
 
+void husk_gl_probe(const char *fn, unsigned bound2d, unsigned err);
+void husk_gl_hist_gen(unsigned n, const unsigned *ids);
+void husk_gl_hist_bind(unsigned target, unsigned id);
+void husk_gl_hist_upload(unsigned target, int level, int border);
+void husk_gl_hist_delete(int n, const unsigned *ids);
+
 static void note(const char *fn, const char *args, long w, long h)
 {
     if (!x_glGetError) x_glGetError = (GLenum (*)(void))tl_egl_resolve("glGetError");
@@ -133,23 +140,22 @@ static void note(const char *fn, const char *args, long w, long h)
                 e == GL_INVALID_ENUM ? " (GL_INVALID_ENUM)" : e == 0x0501 ? " (GL_INVALID_VALUE)" : e == 0x0502 ? " (GL_INVALID_OPERATION)" : "");
     if (w || h) tl_log_line("gl:   size %ldx%ld", w, h);
     dump_state(fn);
+    husk_gl_probe(fn, g_bind2d_for_last, e);
 }
 
 /* ------------------------------------------------------------- the wrappers */
-
-static GLuint g_last_created, g_bind2d_for_last;
 
 static void (*r_BindTexture)(GLenum, GLuint);
 static void w_BindTexture(GLenum target, GLuint id)
 {
     r_BindTexture(target, id);
-    if (target == 0x0DE1) g_bind2d_for_last = id;
+    if (target == 0x0DE1) { g_bind2d_for_last = id; husk_gl_hist_bind(target, id); }
 }
 
 static void (*r_DeleteTextures)(GLsizei, const GLuint *);
 static void w_DeleteTextures(GLsizei n, const GLuint *ids)
 {
-    if (ids && n > 0) tl_log_line("gl: glDeleteTextures(%d) first=%u swap=%lu", n, ids[0], g_swap);
+    if (ids && n > 0) husk_gl_hist_delete((int)n, (const unsigned *)ids);
     r_DeleteTextures(n, ids);
 }
 
@@ -157,13 +163,14 @@ static void (*r_GenTextures)(GLsizei, GLuint *);
 static void w_GenTextures(GLsizei n, GLuint *ids)
 {
     r_GenTextures(n, ids);
-    if (n > 0 && ids) g_last_created = ids[0];
+    if (n > 0 && ids) { g_last_created = ids[0]; husk_gl_hist_gen((unsigned)n, (const unsigned *)ids); }
 }
 
 static void (*r_TexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void *);
 static void w_TexImage2D(GLenum t, GLint level, GLint ifmt, GLsizei w, GLsizei h, GLint border, GLenum fmt, GLenum type, const void *px)
 {
     r_TexImage2D(t, level, ifmt, w, h, border, fmt, type, px);
+    husk_gl_hist_upload(t, level, border);
     char a[160];
     snprintf(a, sizeof(a), "target=%s internal=%s format=%s type=%s level=%d", name_of(t), name_of((GLenum)ifmt), name_of(fmt), name_of(type), level);
     note("glTexImage2D", a, w, h);
@@ -173,6 +180,7 @@ static void (*r_CompressedTexImage2D)(GLenum, GLint, GLenum, GLsizei, GLsizei, G
 static void w_CompressedTexImage2D(GLenum t, GLint level, GLenum ifmt, GLsizei w, GLsizei h, GLint border, GLsizei size, const void *px)
 {
     r_CompressedTexImage2D(t, level, ifmt, w, h, border, size, px);
+    husk_gl_hist_upload(t, level, border);
     char a[160];
     snprintf(a, sizeof(a), "target=%s internal=%s level=%d bytes=%d", name_of(t), name_of(ifmt), level, size);
     note("glCompressedTexImage2D", a, w, h);

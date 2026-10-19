@@ -40,7 +40,7 @@ def main() -> int:
 
     # The test build's rendering diagnostics (not part of the fix): makes the renderer say which texture formats it has and any
     # GL error it raises, so a log can explain "assets load but do not draw".
-    for name in ("husk-gl-diag.c", "husk-gl-texdiag.c"):
+    for name in ("husk-gl-diag.c", "husk-gl-texdiag.c", "husk-gl-probe.c"):
         diag = pathlib.Path(__file__).resolve().parent.parent / "diag" / name
         if diag.exists():
             (tl / name).write_text(diag.read_text())
@@ -79,6 +79,15 @@ def main() -> int:
          '    if (n <= 3 || n % 600 == 0) {\n',
          '    { extern void husk_gl_diag_swap(unsigned long); husk_gl_diag_swap(n); }   /* ci/diag: the frame an error is quoted against */\n'
          '    if (n <= 3 || n % 600 == 0) {\n')
+
+    edit(tl / "husk-tl-egl.c",
+         'static EGLint (*r_eglClientWaitSyncKHR)(EGLDisplay, void *, EGLint, uint64_t);',
+         'static EGLint (*r_eglClientWaitSyncKHR)(EGLDisplay, void *, EGLint, uint64_t);')
+
+    edit(tl / "husk-tl-egl.c",
+         '    { extern void husk_gl_diag_swap(unsigned long); husk_gl_diag_swap(n); }   /* ci/diag: the frame an error is quoted against */\n',
+         '    { extern void husk_gl_diag_swap(unsigned long); husk_gl_diag_swap(n); }   /* ci/diag: the frame an error is quoted against */\n'
+         '    { extern void husk_gl_frame_end(unsigned long); husk_gl_frame_end(n); }\n')
 
     edit(tl / "husk-tl-egl.c",
          '    if (!real) return NULL;\n',
