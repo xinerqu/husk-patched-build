@@ -91,12 +91,20 @@ def main() -> int:
          'static void w_glGenTextures(int n, unsigned *ids) { r_glGenTextures(n, ids); husk_gldiag_gen(n); }\n'
          'static void w_glDeleteTextures(int n, const unsigned *ids) { r_glDeleteTextures(n, ids); husk_gldiag_del(n); }\n'
          'static void w_glTexParameteri(unsigned t, unsigned p, int v) { r_glTexParameteri(t, p, v); husk_gldiag_texparam(t, p, v, diag_take_error()); }\n'
-         'static void w_glTexParameterf(unsigned t, unsigned p, float v) { r_glTexParameterf(t, p, v); husk_gldiag_texparam(t, p, (long)v, diag_take_error()); }\n')
+         'static void w_glTexParameterf(unsigned t, unsigned p, float v) { r_glTexParameterf(t, p, v); husk_gldiag_texparam(t, p, (long)v, diag_take_error()); }\n'
+         'static void (*r_glTexImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);\n'
+         'static void (*r_glCompressedTexImage2D)(unsigned, int, unsigned, int, int, int, int, const void *);\n'
+         'extern void husk_gldiag_teximage(unsigned, int, unsigned, int, int, unsigned, unsigned);\n'
+         'static void w_glTexImage2D(unsigned t, int lv, int ifmt, int w, int h, int b, unsigned fmt, unsigned ty, const void *px)\n'
+         '{ r_glTexImage2D(t, lv, ifmt, w, h, b, fmt, ty, px); husk_gldiag_teximage(t, lv, (unsigned)ifmt, w, h, fmt, ty); }\n'
+         'static void w_glCompressedTexImage2D(unsigned t, int lv, unsigned ifmt, int w, int h, int b, int sz, const void *px)\n'
+         '{ r_glCompressedTexImage2D(t, lv, ifmt, w, h, b, sz, px); husk_gldiag_teximage(t, lv, ifmt, w, h, 0, 0); }\n')
 
     edit(tl / "husk-tl-egl.c",
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n',
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n'
          '    ADAPT(glBindTexture), ADAPT(glGenTextures), ADAPT(glDeleteTextures), ADAPT(glTexParameteri), ADAPT(glTexParameterf),\n'
+         '    ADAPT(glTexImage2D), ADAPT(glCompressedTexImage2D),\n'
          '    ADAPT(glTexParameteri), ADAPT(glTexParameterf),\n')
 
     edit(tl / "husk-tl-egl.c",
