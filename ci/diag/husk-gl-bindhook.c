@@ -184,5 +184,13 @@ void husk_gldiag_texparam(GLenum target, GLenum pname, long value, unsigned err)
         tl_log_line("gl:   that texture has no recorded glTexImage2D in this run (tex=%u)", id);
 }
 
+/* A texture upload the driver refused: the one call that can turn a whole layer blank without another word from the engine. */
+void husk_gldiag_fail(const char *fn, GLenum target, GLenum internal, GLenum format, GLenum type, int w, int h, unsigned err)
+{
+    GLuint id = bound_for(target);
+    tl_log_line("gl: %s REFUSED target=%s internal=%s(%#x) format=%s type=%s %dx%d err=%#x tex=%u",
+                fn, target_name(target), fmt_name(internal), internal, fmt_name(format), fmt_name(type), w, h, err, id);
+}
+
 void husk_gldiag_gen(int n) { g_gens += n; }
 void husk_gldiag_del(int n) { g_dels += n; }
