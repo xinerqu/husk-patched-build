@@ -38,6 +38,11 @@ def main() -> int:
     dest.write_text(NEW_FILE.read_text())
     print(f"  {dest}: written")
 
+    lf = pathlib.Path(__file__).resolve().parent.parent / "fix" / "husk-gl-legacyformats.c"
+    if lf.exists():
+        (tl / lf.name).write_text(lf.read_text())
+        print(f"  {tl / lf.name}: written (fix)")
+
     for name in ("husk-gl-state.c", "husk-gl-fbo.c", "husk-gl-upload.c"):
         st = pathlib.Path(__file__).resolve().parent.parent / "diag" / name
         if st.exists():
@@ -150,8 +155,15 @@ def main() -> int:
          'static void (*r_glTexImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);\n'
          'static void (*r_glCompressedTexImage2D)(unsigned, int, unsigned, int, int, int, int, const void *);\n'
          'static unsigned ci_upload_error(void);\n'
+         'extern unsigned husk_gl_legacy_internal(unsigned);\n'
+         'extern unsigned husk_gl_legacy_format(unsigned);\n'
+         'extern int husk_gl_legacy(unsigned, unsigned);\n'
          'static void w_glTexImage2D(unsigned t, int lv, int ifmt, int w, int h, int b, unsigned fmt, unsigned ty, const void *px)\n'
          '{\n'
+         '    /* GL_LUMINANCE / LUMINANCE_ALPHA / ALPHA are GLES 2 formats: in a 3.0 context ANGLE refuses them, and the texture\n'
+         '     * then holds nothing while the engine keeps drawing with it. Send the equivalent 3.0 format instead. */\n'
+         '    ifmt = (int)husk_gl_legacy_internal((unsigned)ifmt);\n'
+         '    fmt = husk_gl_legacy_format(fmt);\n'
          '    r_glTexImage2D(t, lv, ifmt, w, h, b, fmt, ty, px);\n'
          '    unsigned e = ci_upload_error();\n'
          '    husk_gldiag_image((unsigned)ifmt, fmt, ty, w, h, e);\n'
