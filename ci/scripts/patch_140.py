@@ -38,10 +38,11 @@ def main() -> int:
     dest.write_text(NEW_FILE.read_text())
     print(f"  {dest}: written")
 
-    st = pathlib.Path(__file__).resolve().parent.parent / "diag" / "husk-gl-state.c"
-    if st.exists():
-        (tl / st.name).write_text(st.read_text())
-        print(f"  {tl / st.name}: written (diagnostics)")
+    for name in ("husk-gl-state.c", "husk-gl-fbo.c"):
+        st = pathlib.Path(__file__).resolve().parent.parent / "diag" / name
+        if st.exists():
+            (tl / name).write_text(st.read_text())
+            print(f"  {tl / name}: written (diagnostics)")
 
     edit(tl / "husk-tl-jni-godot.c",
          '    tl_jni_register_hle(bridge);\n',
@@ -96,10 +97,26 @@ def main() -> int:
          '    { extern void husk_gldiag_tick(void); husk_gldiag_tick(); }\n'
          '    if (n <= 3 || n % 600 == 0) {\n')
 
+
+    # ci/diag: the draws are issued and nothing in the state is wrong, so ask where they land -- an off-screen target
+    # that is never presented, or one ANGLE cannot back.
+    edit(tl / "husk-tl-egl.c",
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
+         'extern void husk_gldiag_fbo(unsigned target, unsigned id, int draws_since);\n'
+         'extern void husk_gldiag_fbo_set_real(void *check, void *getiv);\n'
+         'static void (*r_glBindFramebuffer)(unsigned, unsigned);\n'
+         'static void w_glBindFramebuffer(unsigned t, unsigned id)\n'
+         '{\n'
+         '    r_glBindFramebuffer(t, id);\n'
+         '    husk_gldiag_fbo_set_real((void *)a_eglGetProcAddress("glCheckFramebufferStatus"), (void *)a_eglGetProcAddress("glGetIntegerv"));\n'
+         '    husk_gldiag_fbo(t, id, 0);\n'
+         '}\n')
+
     edit(tl / "husk-tl-egl.c",
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n',
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n'
-         '    ADAPT(glScissor), ADAPT(glBlendFunc), ADAPT(glEnable), ADAPT(glDisable), ADAPT(glFrontFace),\n'
+         '    ADAPT(glScissor), ADAPT(glBlendFunc), ADAPT(glEnable), ADAPT(glDisable), ADAPT(glFrontFace), ADAPT(glBindFramebuffer),\n'
          '    ADAPT(glDrawElements), ADAPT(glDrawArrays),\n')
 
     edit(tl / "husk-tl-jni-godot.c",
