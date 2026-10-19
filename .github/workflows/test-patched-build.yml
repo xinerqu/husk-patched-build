@@ -170,16 +170,10 @@ jobs:
         run: |
           APP="husk-src/build/Husk.ipa"
           ls -lh "$APP"
-          unzip -l "$APP" | grep -E 'Husk.app/Husk$|Frameworks/libANGLE-shared.dylib|java-runtime/husk-framework.dex|android-system/etc/fonts.xml'
+          ls -lh "${APP%.ipa}.tipa"
+          unzip -l "$APP" | grep -E 'Husk.app/Husk$|Frameworks/libANGLE-shared.dylib|java-runtime/husk-framework.dex'
 
       - name: Publish the IPA
         run: bash ci/ci/scripts/release_assets.sh "$GITHUB_WORKSPACE/husk-src/build/Husk.ipa"
 
-      - name: IPA as a workflow artifact (sideload build only)
-        if: always() && !cancelled()
-        uses: actions/upload-artifact@v4
-        with:
-          name: husk-ipa-${{ github.run_number }}
-          path: husk-src/build/Husk.ipa
-          if-no-files-found: ignore
-          retention-days: 30
+
