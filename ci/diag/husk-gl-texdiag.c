@@ -35,6 +35,15 @@ static GLenum (*x_glGetError)(void);
 static GLint (*x_glGetIntegerv)(GLenum, GLint *);
 
 static int g_reported;
+
+/* Declared before the wrappers that pass them to the retry module. */
+static void (*r_BindTexture)(GLenum, GLuint);
+static void (*r_TexParameteri)(GLenum, GLenum, GLint);
+static void (*r_TexParameterf)(GLenum, GLenum, float);
+static void (*r_GenerateMipmap)(GLenum);
+
+/* Set while a retry is running: a wrapped call reached from there must act as the plain driver call, or a retry would recurse. */
+static int g_in_retry;
 static unsigned long g_swap;
 static GLuint g_last_created, g_bind2d_for_last;
 
@@ -124,8 +133,12 @@ static void dump_state(const char *fn)
 }
 
 void husk_gl_probe(const char *fn, unsigned bound2d, unsigned err);
-bool husk_gl_param_retry(unsigned target, unsigned pname, int ival, float fval, bool is_float);
-bool husk_gl_generate_mipmap_retry(unsigned target);
+void husk_gl_angle_retry_set_real(void *get_error, void *bind_texture, void *tex_param_i, void *tex_param_f,
+                                  void *get_ivec, void *generate_mipmap);
+bool husk_gl_angle_retry_i(unsigned target, unsigned pname, int value, unsigned bound);
+bool husk_gl_angle_retry_f(unsigned target, unsigned pname, float value, unsigned bound);
+bool husk_gl_angle_retry_mipmap(unsigned target);
+unsigned husk_gl_angle_bound(unsigned target);
 void husk_gl_hist_gen(unsigned n, const unsigned *ids);
 void husk_gl_hist_bind(unsigned target, unsigned id);
 void husk_gl_hist_upload(unsigned target, int level, int border);
@@ -147,7 +160,6 @@ static void note(const char *fn, const char *args, long w, long h)
 
 /* ------------------------------------------------------------- the wrappers */
 
-static void (*r_BindTexture)(GLenum, GLuint);
 static void w_BindTexture(GLenum target, GLuint id)
 {
     r_BindTexture(target, id);
@@ -206,13 +218,16 @@ static void w_TexStorage3D(GLenum t, GLsizei levels, GLenum ifmt, GLsizei w, GLs
     note("glTexStorage3D", a, w, h);
 }
 
-static void (*r_TexParameteri)(GLenum, GLenum, GLint);
 static void w_TexParameteri(GLenum t, GLenum pname, GLint v)
 {
     r_TexParameteri(t, pname, v);
-    /* ANGLE can refuse a legal call on a valid, bound texture (probe: isTexture=1, leftover=0). Rebind and retry before anyone
-     * sees it: for a driver that was right this changes nothing, for ANGLE it repairs the object. */
-    if (husk_gl_param_retry(t, pname, v, 0.0f, false)) return;
+    if (g_in_retry) return;
+    husk_gl_angle_retry_set_real((void *)x_glGetError, (void *)r_BindTexture, (void *)r_TexParameteri, (void *)r_TexParameterf,
+                                 (void *)x_glGetIntegerv, (void *)r_GenerateMipmap);
+    g_in_retry = 1;
+    bool fixed = husk_gl_angle_retry_i(t, pname, v, g_bind2d_for_last);
+    g_in_retry = 0;
+    if (fixed) return;
     char a[192];
     snprintf(a, sizeof(a), "target=%s pname=%s value=%s lastgen=%u bound2D=%u", name_of(t), name_of(pname),
              (pname == 0x2801 || pname == 0x2800 || pname == 0x2802 || pname == 0x2803 || (GLenum)v > 0x10000) ? name_of((GLenum)v) : "",
@@ -220,21 +235,31 @@ static void w_TexParameteri(GLenum t, GLenum pname, GLint v)
     note("glTexParameteri", a, 0, 0);
 }
 
-static void (*r_TexParameterf)(GLenum, GLenum, float);
 static void w_TexParameterf(GLenum t, GLenum pname, float v)
 {
     r_TexParameterf(t, pname, v);
-    if (husk_gl_param_retry(t, pname, 0, v, true)) return;
+    if (g_in_retry) return;
+    husk_gl_angle_retry_set_real((void *)x_glGetError, (void *)r_BindTexture, (void *)r_TexParameteri, (void *)r_TexParameterf,
+                                 (void *)x_glGetIntegerv, (void *)r_GenerateMipmap);
+    g_in_retry = 1;
+    bool fixedf = husk_gl_angle_retry_f(t, pname, v, g_bind2d_for_last);
+    g_in_retry = 0;
+    if (fixedf) return;
     char a[192];
     snprintf(a, sizeof(a), "target=%s pname=%s value=%g lastgen=%u bound2D=%u", name_of(t), name_of(pname), (double)v, g_last_created, g_bind2d_for_last);
     note("glTexParameterf", a, 0, 0);
 }
 
-static void (*r_GenerateMipmap)(GLenum);
 static void w_GenerateMipmap(GLenum t)
 {
     r_GenerateMipmap(t);
-    if (husk_gl_generate_mipmap_retry(t)) return;
+    if (g_in_retry) return;
+    husk_gl_angle_retry_set_real((void *)x_glGetError, (void *)r_BindTexture, (void *)r_TexParameteri, (void *)r_TexParameterf,
+                                 (void *)x_glGetIntegerv, (void *)r_GenerateMipmap);
+    g_in_retry = 1;
+    bool fixedm = husk_gl_angle_retry_mipmap(t);
+    g_in_retry = 0;
+    if (fixedm) return;
     char a[96];
     snprintf(a, sizeof(a), "target=%s bound2D=%u", name_of(t), g_bind2d_for_last);
     note("glGenerateMipmap", a, 0, 0);
