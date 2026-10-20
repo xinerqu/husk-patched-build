@@ -78,6 +78,8 @@ jobs:
           python3 ci/ci/scripts/patch_140.py husk-src
           # Godot reads its font paths from ANDROID_ROOT, which Husk only sets in the Java branch
           python3 ci/ci/scripts/patch_godot_android_root.py husk-src
+          # the CJK face lives in Application Support/Fonts, not in android-system/fonts
+          python3 ci/ci/scripts/patch_cjk_font_path.py husk-src
           # test build only: make Godot write its engine log to a file (release exports keep it on stderr alone)
           python3 ci/ci/scripts/patch_godot_log.py husk-src
           git -C husk-src diff --stat || true
@@ -130,6 +132,8 @@ jobs:
           python3 ci/ci/scripts/patch_140.py husk-src
           # Godot reads its font paths from ANDROID_ROOT, which Husk only sets in the Java branch
           python3 ci/ci/scripts/patch_godot_android_root.py husk-src
+          # the CJK face lives in Application Support/Fonts, not in android-system/fonts
+          python3 ci/ci/scripts/patch_cjk_font_path.py husk-src
           # test build only: make Godot write its engine log to a file (release exports keep it on stderr alone)
           python3 ci/ci/scripts/patch_godot_log.py husk-src
 
