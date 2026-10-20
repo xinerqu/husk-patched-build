@@ -76,8 +76,6 @@ jobs:
       - name: Apply the #140 patch
         run: |
           python3 ci/ci/scripts/patch_140.py husk-src
-          # test build only: save the screen at fixed frames of a Godot game
-          python3 ci/ci/scripts/patch_screenshots.py husk-src
           git -C husk-src diff --stat || true
           ls -l husk-src/src/translation-layer-next/husk-tl-jni-godot-kotlin.c
 
@@ -126,8 +124,6 @@ jobs:
           git clone --depth 1 --branch "$HUSK_REF" "https://github.com/$HUSK_REPO.git" husk-src || \
             git clone "https://github.com/$HUSK_REPO.git" husk-src
           python3 ci/ci/scripts/patch_140.py husk-src
-          # test build only: save the screen at fixed frames of a Godot game
-          python3 ci/ci/scripts/patch_screenshots.py husk-src
 
       - name: Restore the build cache (the dependencies the last job built)
         uses: actions/cache/restore@v4
