@@ -76,8 +76,8 @@ jobs:
       - name: Apply the #140 patch
         run: |
           python3 ci/ci/scripts/patch_140.py husk-src
-          # test build only: attribute a GL error to the upload that raised it
-          python3 ci/ci/diag/patch_upload_diag.py husk-src
+          # Vulkan for Godot: hand it the MoltenVK the app carries, and stop forcing the compatibility renderer
+          python3 ci/ci/scripts/patch_godot_vulkan.py husk-src
           git -C husk-src diff --stat || true
           ls -l husk-src/src/translation-layer-next/husk-tl-jni-godot-kotlin.c
 
@@ -126,8 +126,8 @@ jobs:
           git clone --depth 1 --branch "$HUSK_REF" "https://github.com/$HUSK_REPO.git" husk-src || \
             git clone "https://github.com/$HUSK_REPO.git" husk-src
           python3 ci/ci/scripts/patch_140.py husk-src
-          # test build only: attribute a GL error to the upload that raised it
-          python3 ci/ci/diag/patch_upload_diag.py husk-src
+          # Vulkan for Godot: hand it the MoltenVK the app carries, and stop forcing the compatibility renderer
+          python3 ci/ci/scripts/patch_godot_vulkan.py husk-src
 
       - name: Restore the build cache (the dependencies the last job built)
         uses: actions/cache/restore@v4
