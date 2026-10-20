@@ -9,6 +9,13 @@ def edit(path, old, new):
 root = pathlib.Path(sys.argv[1]).resolve()
 tl = root / "src" / "translation-layer-next"
 
+# 0. Declare the setter in the header Swift sees, or the Swift call cannot be found.
+edit(tl / "husk-tl-unity-app.h",
+     'void husk_ue4_set_vulkan(const char *dylib);\n',
+     'void husk_ue4_set_vulkan(const char *dylib);\n'
+     '/* The MoltenVK the app carries, for Godot 4 games: without it they get no Vulkan and fall back to ANGLE. */\n'
+     'void husk_godot_set_vulkan(const char *dylib);\n')
+
 # 1. A.setter for the MoltenVK path, next to the UE4 one
 edit(tl / "husk-tl-unity-app.c",
      'void husk_ue4_set_vulkan(const char *dylib) { snprintf(A.vulkan, sizeof(A.vulkan), "%s", dylib ? dylib : ""); }\n',
