@@ -159,7 +159,7 @@ jobs:
         env:
           HUSK_ROOT: ${{ github.workspace }}/husk-src
           HUSK_PREBUILT: ${{ github.workspace }}/husk-prebuilt
-          IPA_ONLY: "0"
+          IPA_ONLY: "1"
         run: bash ci/ci/scripts/ci_build.sh package
 
       - name: Build logs

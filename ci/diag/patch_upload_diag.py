@@ -70,6 +70,26 @@ def main() -> int:
          '}\n')
 
     edit(tl / "husk-tl-egl.c",
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
+         '/* ci/diag: Godot 4\'s 2D canvas draws every sprite through glDrawElementsInstanced -- one call, many quads. */\n'
+         'extern void husk_gldiag_sum_draw_inst(unsigned mode, int count, unsigned type, const void *indices, int instances);\n'
+         'static void (*r_glDrawElementsInstanced)(unsigned, int, unsigned, const void *, int);\n'
+         'static void (*r_glDrawArraysInstanced)(unsigned, int, int, int);\n'
+         'static void w_glDrawElementsInstanced(unsigned m, int c, unsigned t, const void *i, int n)\n'
+         '{\n'
+         '    r_glDrawElementsInstanced(m, c, t, i, n);\n'
+         '    if (!ci_batch_ready) { ci_batch_ready = 1; husk_gldiag_sum_set_real((void *)a_eglGetProcAddress("glGetIntegerv")); }\n'
+         '    husk_gldiag_sum_draw_inst(m, c, t, i, n);\n'
+         '}\n'
+         'static void w_glDrawArraysInstanced(unsigned m, int f, int c, int n)\n'
+         '{\n'
+         '    r_glDrawArraysInstanced(m, f, c, n);\n'
+         '    if (!ci_batch_ready) { ci_batch_ready = 1; husk_gldiag_sum_set_real((void *)a_eglGetProcAddress("glGetIntegerv")); }\n'
+         '    husk_gldiag_sum_draw_inst(m, c, 0, 0, n);\n'
+         '}\n')
+
+    edit(tl / "husk-tl-egl.c",
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n',
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n'
          '    ADAPT(glTexImage2D), ADAPT(glCompressedTexImage2D),\n')
@@ -78,7 +98,9 @@ def main() -> int:
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n',
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n'
          '    { "glDrawElements", (void *)w_glDrawElements, (void **)&r_glDrawElements2 },\n'
-         '    { "glDrawArrays", (void *)w_glDrawArrays, (void **)&r_glDrawArrays2 },\n')
+         '    { "glDrawArrays", (void *)w_glDrawArrays, (void **)&r_glDrawArrays2 },\n'
+         '    { "glDrawElementsInstanced", (void *)w_glDrawElementsInstanced, (void **)&r_glDrawElementsInstanced },\n'
+         '    { "glDrawArraysInstanced", (void *)w_glDrawArraysInstanced, (void **)&r_glDrawArraysInstanced },\n')
     edit(tl / "husk-tl-egl.c",
          '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
          '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'

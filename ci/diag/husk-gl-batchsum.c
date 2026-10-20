@@ -61,7 +61,7 @@ void husk_gldiag_sum_set_real(void *get_ivec) { R_GetIntegerv = (void (*)(GLenum
  *
  * Every draw is counted, always: that count is how the first scene frame is recognised (the loading screens draw twice). Only the
  * per-texture summing is gated, so the summary describes the summed frames alone and not the whole session. */
-void husk_gldiag_sum_draw(unsigned mode, int count, unsigned type, const void *indices)
+void husk_gldiag_sum_draw_inst(unsigned mode, int count, unsigned type, const void *indices, int instances)
 {
     (void)type; (void)indices;
     g_draws_frame++;                       /* always: this is the frame's draw count */
@@ -70,15 +70,23 @@ void husk_gldiag_sum_draw(unsigned mode, int count, unsigned type, const void *i
     GLint tex = 0, prog = 0;
     R_GetIntegerv(GL_TEXTURE_BINDING_2D, &tex);
     R_GetIntegerv(GL_CURRENT_PROGRAM, &prog);
-    /* GL_TRIANGLES (4) is the only mode the 2D renderer uses for these batches */
-    long tris = (mode == 4) ? count / 3 : (mode == 5) ? (count >= 3 ? count - 2 : 0) : -1;
+    /* GL_TRIANGLES (4) is the mode the 2D renderer uses for these batches; each instance repeats the whole element set. */
+    long tris = (mode == 4) ? count / 3 : (mode == 5) ? (count >= 3 ? count - 2 : 0) : 1;
     if (tris < 0) tris = 0;
+    if (instances > 1) tris *= instances;
 
     struct entry *e = slot(tex, prog);
     if (!e) return;
     e->draws++;
     e->tris += tris;
 }
+
+/* The plain forms, for the few draws that are not instanced (lines, SDF text): one instance. */
+void husk_gldiag_sum_draw(unsigned mode, int count, unsigned type, const void *indices)
+{
+    husk_gldiag_sum_draw_inst(mode, count, type, indices, 1);
+}
+
 
 /* Called at the end of every frame, with the frame number.
  *
