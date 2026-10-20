@@ -14,6 +14,7 @@ import pathlib
 import sys
 
 NEW = pathlib.Path(__file__).resolve().parent / "husk-gl-upload.c"
+BATCH = pathlib.Path(__file__).resolve().parent / "husk-gl-batch.c"
 
 
 def edit(path: pathlib.Path, old: str, new: str) -> None:
@@ -33,6 +34,8 @@ def main() -> int:
 
     (tl / NEW.name).write_text(NEW.read_text())
     print(f"  {tl / NEW.name}: written")
+    (tl / BATCH.name).write_text(BATCH.read_text())
+    print(f"  {tl / BATCH.name}: written")
 
     edit(tl / "husk-tl-egl.c",
          '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
@@ -70,6 +73,40 @@ def main() -> int:
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n',
          '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n'
          '    ADAPT(glTexImage2D), ADAPT(glCompressedTexImage2D),\n')
+
+    edit(tl / "husk-tl-egl.c",
+         '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n',
+         '    ADAPT(glUniformMatrix3fv), ADAPT(glUniformMatrix4fv), ADAPT(glSampleCoverage), ADAPT(glGetString), ADAPT(glGetStringi), ADAPT(glCompileShader), ADAPT(glShaderSource), ADAPT(glAttachShader), ADAPT(glLinkProgram), ADAPT(glGetIntegerv), ADAPT(glBindBufferBase), ADAPT(glBindBuffer), ADAPT(glBufferData), ADAPT(glBufferSubData), ADAPT(glBindBufferRange),\n'
+         '    { "glDrawElements", (void *)w_glDrawElements, (void **)&r_glDrawElements2 },\n'
+         '    { "glDrawArrays", (void *)w_glDrawArrays, (void **)&r_glDrawArrays2 },\n')
+    edit(tl / "husk-tl-egl.c",
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n',
+         '#define ADAPT(name) { #name, (void *)w_##name, (void **)&r_##name }\n'
+         '/* ci/diag: one frame of draws, in order, with program/texture/count -- the missing group is a set of draws. */\n'
+         'extern void husk_gldiag_batch_set_real(void *get_iv);\n'
+         'extern void husk_gldiag_batch_frame(unsigned long swap);\n'
+         'extern void husk_gldiag_draw(unsigned mode, int count, unsigned type, const void *indices);\n'
+         'static void (*r_glDrawElements2)(unsigned, int, unsigned, const void *);\n'
+         'static void (*r_glDrawArrays2)(unsigned, int, int);\n'
+         'static int ci_batch_ready;\n'
+         'static void w_glDrawElements(unsigned m, int c, unsigned t, const void *i)\n'
+         '{\n'
+         '    r_glDrawElements2(m, c, t, i);\n'
+         '    if (!ci_batch_ready) { ci_batch_ready = 1; husk_gldiag_batch_set_real((void *)a_eglGetProcAddress("glGetIntegerv")); }\n'
+         '    husk_gldiag_draw(m, c, t, i);\n'
+         '}\n'
+         'static void w_glDrawArrays(unsigned m, int f, int c)\n'
+         '{\n'
+         '    r_glDrawArrays2(m, f, c);\n'
+         '    if (!ci_batch_ready) { ci_batch_ready = 1; husk_gldiag_batch_set_real((void *)a_eglGetProcAddress("glGetIntegerv")); }\n'
+         '    husk_gldiag_draw(m, c, 0, NULL);\n'
+         '}\n')
+
+    edit(tl / "husk-tl-egl.c",
+         '    if (n <= 3 || n % 600 == 0) {\n',
+         '    { extern void husk_gldiag_batch_frame(unsigned long); husk_gldiag_batch_frame(n); }\n'
+         '    if (n <= 3 || n % 600 == 0) {\n')
+
     return 0
 
 
